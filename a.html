@@ -1,0 +1,1373 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Explorador de Marte · MOLA</title>
+<style>
+:root{color-scheme:light dark;--bg:#f4eee8;--fg:#241a16;--card:#fff;--mut:#75675e;--accent:#c1440e;--line:#e2d6cc}
+@media(prefers-color-scheme:dark){:root{--bg:#16100e;--fg:#f1e6df;--card:#241a17;--mut:#a89588;--accent:#ff7a45;--line:#3a2c27}}
+*{box-sizing:border-box}body{margin:0;padding:14px;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif}
+h1{font-size:20px;margin:0 0 3px}.sub,.note{font-size:13px;color:var(--mut)}
+.layout{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(280px,1fr);gap:12px;margin-top:12px}
+@media(max-width:850px){.layout{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+.card h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin:0 0 8px}
+#globeBox{position:relative;width:100%;height:min(68vh,680px);min-height:380px;background:#100b0b;border-radius:8px;overflow:hidden}
+#globeBox canvas{display:block;width:100%;height:100%;touch-action:none}
+#status{position:absolute;left:10px;right:10px;bottom:8px;padding:5px 8px;border-radius:6px;background:#17100dcc;color:#eee;font-size:12px;pointer-events:none}
+.camera-pad{position:absolute;top:10px;right:10px;display:grid;grid-template-columns:repeat(3,34px);grid-template-rows:repeat(3,34px);gap:3px}
+.camera-pad button{margin:0;padding:0;background:#17100dcc;border:1px solid #ffffff66;color:#fff;font-size:18px;line-height:1}
+.camera-pad button:hover{background:#c1440e}
+.camera-pad .pan-up{grid-column:2;grid-row:1}.camera-pad .pan-left{grid-column:1;grid-row:2}
+.camera-pad .pan-center{grid-column:2;grid-row:2;font-size:13px}.camera-pad .pan-right{grid-column:3;grid-row:2}
+.camera-pad .pan-down{grid-column:2;grid-row:3}
+body.picking-start #globeBox canvas{cursor:crosshair}
+label{display:block;margin:7px 0}input[type=range]{width:100%}
+button{background:var(--accent);color:white;border:0;border-radius:8px;padding:7px 12px;font-size:14px;cursor:pointer;margin:2px 4px 2px 0}
+button.secondary{background:transparent;color:var(--fg);border:1px solid var(--line)}
+.kv{display:flex;justify-content:space-between;border-bottom:1px dashed var(--line);padding:3px 0}
+.verdict{font-weight:600;padding:8px;border-radius:8px;margin-top:8px}.ok{background:#2e7d3226;color:#2e7d32}.bad{background:#c6282826;color:#c62828}
+#profile{width:100%;height:115px;background:var(--bg);border-radius:6px}
+.tools{display:flex;gap:6px;flex-wrap:wrap}
+</style>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<h1>Planificador de exploración de Marte</h1>
+<div class="sub">Relieve MOLA MEGT · globo con teselas globales 128 ppd y polares 512 ppd</div>
+<div class="layout">
+  <section>
+    <div class="card">
+      <div id="globeBox">
+        <canvas id="globe"></canvas>
+        <div class="camera-pad" aria-label="Desplazar cámara">
+          <button type="button" class="pan-up" data-pan-y="1" aria-label="Mover cámara arriba">↑</button>
+          <button type="button" class="pan-left" data-pan-x="-1" aria-label="Mover cámara a la izquierda">←</button>
+          <button type="button" class="pan-center" id="recenterCamera" aria-label="Centrar cámara">•</button>
+          <button type="button" class="pan-right" data-pan-x="1" aria-label="Mover cámara a la derecha">→</button>
+          <button type="button" class="pan-down" data-pan-y="-1" aria-label="Mover cámara abajo">↓</button>
+        </div>
+        <div id="status">Conectando con el visor 3D…</div>
+      </div>
+      <p class="note">Arrastra para rotar; usa la rueda o el gesto de pinza para acercarte. Los botones de flecha desplazan la cámara; haz clic sobre Marte para añadir paradas. Activa «Elegir inicio» para cambiar el origen de la ruta.</p>
+      <label>Vista del terreno
+        <select id="terrainView">
+          <option value="elevation">Elevación · MOLA</option>
+          <option value="slope">Pendiente · derivada de MOLA</option>
+          <option value="altimetry">Altimetría · falso color tipo IR</option>
+          <option value="climate" disabled>Clima · fuente no configurada</option>
+        </select>
+      </label>
+      <div id="viewNote" class="note">Colores de elevación MOLA. La vista tipo IR es una paleta de altitud, no una imagen térmica.</div>
+    </div>
+    <div class="card"><h2>Perfil de elevación de la ruta</h2><canvas id="profile" width="720" height="150"></canvas></div>
+  </section>
+  <aside>
+    <div class="card">
+      <h2>Parámetros</h2>
+      <label>Sitio de exploración
+        <select id="site"></select>
+      </label>
+      <div id="siteInfo" class="note"></div>
+      <div class="tools">
+        <button id="focusSite" class="secondary">Enfocar sitio</button>
+        <button id="addSite" class="secondary">Añadir como parada</button>
+      </div>
+      <label>Umbral de pendiente alta: <b id="thresholdValue">8</b>°
+        <input id="threshold" type="range" min="1" max="25" step="1" value="8">
+      </label>
+      <label>Velocidad: <b id="speedValue">2,5</b> km/h
+        <input id="speed" type="range" min="1" max="4" step=".1" value="2.5">
+      </label>
+      <label>Autonomía: <b id="batteryValue">8</b> h
+        <input id="battery" type="range" min="4" max="10" step=".5" value="8">
+      </label>
+      <label>Masa del vehículo (kg)
+        <input id="vehicleMass" type="number" min="1" max="100000" step="1" value="300">
+      </label>
+      <label>Consumo base (Wh/km)
+        <input id="vehicleWhKm" type="number" min="1" max="1000000" step="10" value="500">
+      </label>
+      <label>Batería (Wh)
+        <input id="vehicleBattery" type="number" min="1" max="100000000" step="100" value="20000">
+      </label>
+      <label>Eficiencia de tracción
+        <input id="vehicleEfficiency" type="number" min=".05" max="1" step=".05" value=".65">
+      </label>
+      <label>Hora solar de salida: <b id="departureValue">9:00</b>
+        <input id="departure" type="range" min="0" max="24" step=".5" value="9">
+      </label>
+      <label><input id="scientificStops" type="checkbox"> Marcar cada parada como científica (también Shift + clic)</label>
+      <div class="note">Reserva de 1 h · 15 min por parada. Los parámetros del vehículo son demostrativos y deben sustituirse por datos de misión validados.</div>
+    </div>
+    <div class="card">
+      <h2>Ruta</h2>
+      <div id="startStatus" class="note"></div>
+      <div id="routeMethod" class="note"></div>
+      <div class="tools">
+        <button id="pickStart" class="secondary" type="button">Elegir inicio en el globo</button>
+        <button id="siteAsStart" class="secondary" type="button">Usar sitio seleccionado</button>
+        <button id="resetStart" class="secondary" type="button">Volver a Jezero</button>
+      </div>
+      <div id="routeStats" class="note">Carga la colección MOLA y haz clic en el globo para añadir paradas.</div>
+      <div id="verdict"></div>
+      <div class="tools">
+        <button id="undo" class="secondary">Deshacer parada</button>
+        <button id="clear" class="secondary">Borrar ruta</button>
+      </div>
+    </div>
+    <div class="card"><h2>Contexto del sitio</h2><div id="missionInfo" class="note">Selecciona un sitio para ver el contexto de la misión.</div></div>
+    <div class="card note">Prototipo de apoyo a planificación: no está certificado para operación NASA. MOLA (≈460 m/píxel global) no resuelve rocas ni peligros locales. Las pendientes, rodeos y energía son estimaciones; los tramos >50 km no optimizan rodeos. El clima no está conectado todavía.</div>
+  </aside>
+</div>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const $ = id => document.getElementById(id);
+const RADIUS_KM = 3389.5;
+const EQUATORIAL_RADIUS_KM = 3396.0;
+const POLAR_RADIUS_KM = 3376.2;
+const POLAR_PIXELS_PER_DEGREE = 512;
+const POLAR_SAMPLES = 12288;
+const HEIGHT_BASE = -10000;
+const HEIGHT_SCALE = 10;
+const HEIGHT_EXAGGERATION = 1;
+const MAX_PIXEL_CACHE = 64;
+const MAX_CONCURRENT_TILE_LOADS = 8;
+const MAX_SLOPE_OPTIMIZED_LEG_KM = 50;
+const LANDING = { lat: 18.4447, lon: 77.4509 };
+const SITES = [
+  { name: "Jezero", lat: 18.4447, lon: 77.4509, type: "Aterrizaje real", mission: "Perseverance, Octavia E. Butler Landing.", science: "Antiguo lago y delta; búsqueda de biofirmas. Riesgos regionales: borde del cráter y frente del delta.", context: "MEDA (Perseverance) midió en Jezero temperaturas y presión; las condiciones cambian con la estación y hora solar." },
+  { name: "Valles Marineris", lat: -13.9, lon: 301.6, type: "Sitio hipotético", mission: "No hay misión aterrizada en este punto.", science: "Cañón de miles de kilómetros con capas geológicas expuestas. Las paredes y taludes pueden ser muy empinados.", context: "No hay estación meteorológica local; las condiciones no se infieren aquí." },
+  { name: "Olympus Mons", lat: 18.65, lon: 226.2, type: "Sitio hipotético", mission: "No hay misión aterrizada en este punto.", science: "Gran volcán de escudo; estudiar su historia volcánica. El relieve regional de MOLA no describe peligros locales.", context: "No hay estación meteorológica local; las condiciones no se infieren aquí." },
+  { name: "Cráter Gale", lat: -4.5895, lon: 137.4417, type: "Aterrizaje real", mission: "Curiosity, Bradbury Landing.", science: "Capas de arcilla y sulfatos en la montaña central; terreno y pendientes varían mucho.", context: "Curiosity lleva REMS y RAD en Gale. No se muestran lecturas actuales ni se extrapolan a otros sitios." },
+  { name: "Cuenca Hellas", lat: -42.4, lon: 70.5, type: "Sitio hipotético", mission: "No hay misión aterrizada en este punto.", science: "Gran cuenca de impacto profunda; la elevación cambia la presión ambiental.", context: "No hay estación meteorológica local; las condiciones no se infieren aquí." },
+  { name: "Meridiani Planum", lat: -1.95, lon: 354.47, type: "Aterrizaje histórico", mission: "Opportunity aterrizó en Eagle Crater y operó entre 2004 y 2018.", science: "Región donde Opportunity investigó rocas sedimentarias y hematita.", context: "No se muestran mediciones meteorológicas locales en este prototipo." }
+];
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x100b0b);
+const camera = new THREE.PerspectiveCamera(42, 1, 0.001, 30);
+const renderer = new THREE.WebGLRenderer({ canvas: $("globe"), antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.07;
+controls.enablePan = true;
+controls.panSpeed = 0.35;
+controls.screenSpacePanning = true;
+controls.minDistance = 1.04;
+controls.maxDistance = 5.5;
+camera.position.copy(geoVector(LANDING.lat, LANDING.lon).multiplyScalar(3.15));
+const base = new THREE.Mesh(
+  new THREE.SphereGeometry(0.97, 64, 48),
+  new THREE.MeshBasicMaterial({ color: 0x241512 })
+);
+scene.add(base);
+const sun = new THREE.Vector3(-0.45, 0.28, 0.85).normalize();
+const raycaster = new THREE.Raycaster();
+const activeTiles = new Map();
+const markers = new Set();
+const routePoints = [];
+const pointMeshes = [];
+const pixelTiles = new Map();
+let desiredTileKeys = new Set();
+let tileLoadQueue = [];
+const tileBuildQueue = [];
+let activeTileLoads = 0;
+let tileBuildScheduled = false;
+let routeLine = null;
+let routeStart = { ...LANDING, name: "Jezero · base Perseverance" };
+let routeStartMarker = null;
+let manifest = null;
+let updateTimer = 0;
+let updateGeneration = 0;
+let routeGeneration = 0;
+let routeDrawGeneration = 0;
+let routeVisibilityTimer = 0;
+let routeVisibilityLastUpdate = 0;
+let pointerStart = null;
+let siteMarker = null;
+let markerTexture = null;
+let pickingStart = false;
+let terrainViewMode = 0;
+let routePlanCache = { key: "", promise: null };
+const TERRAIN_VIEWS = Object.freeze({
+  elevation: { mode: 0, note: "Elevación topográfica MOLA con sombreado. Alturas regionales, no obstáculos de escala de rover." },
+  slope: { mode: 1, note: "Pendiente calculada a partir del relieve MOLA; la malla global es de resolución regional y no sirve como certificación de transitabilidad." },
+  altimetry: { mode: 2, note: "Altimetría MOLA en falso color tipo infrarrojo. No representa temperatura, radiación ni una captura de un instrumento IR." }
+});
+
+const terrainMaterial = new THREE.ShaderMaterial({
+  uniforms: { lightDirection: { value: sun }, isPolar: { value: 0 }, viewMode: { value: 0 } },
+  vertexShader: `
+    attribute vec3 encodedHeight;
+    varying vec3 vPosition;
+    varying vec3 vSurface;
+    varying vec3 vPhysicalPosition;
+    varying float vHeight;
+    void main() {
+      vec3 rgb = encodedHeight;
+      float encoded = dot(rgb, vec3(65536.0, 256.0, 1.0));
+      float height = encoded / ${HEIGHT_SCALE.toFixed(1)} + ${HEIGHT_BASE.toFixed(1)};
+      vPosition = position;
+      vSurface = normalize(position);
+      vHeight = height;
+      vPhysicalPosition = position;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }`,
+  fragmentShader: `
+    uniform vec3 lightDirection;
+    uniform float isPolar;
+    uniform float viewMode;
+    varying vec3 vPosition;
+    varying vec3 vSurface;
+    varying vec3 vPhysicalPosition;
+    varying float vHeight;
+    void main() {
+      if (isPolar < 0.5) {
+        vec3 surface = normalize(vSurface);
+        float latitude = asin(clamp(abs(surface.y), 0.0, 1.0));
+        float longitude = atan(surface.x, surface.z);
+        float rho = (360.0 * 512.0 / 3.14159265359) * tan((1.57079632679 - latitude) * 0.5);
+        float sampleX = 6143.5 + rho * sin(longitude);
+        float northY = 6143.5 + rho * cos(longitude);
+        float southY = 6143.5 - rho * cos(longitude);
+        bool coveredByPole = sampleX >= -0.5 && sampleX <= 12287.5 &&
+          ((surface.y >= 0.0 && northY >= -0.5 && northY <= 12287.5) ||
+           (surface.y < 0.0 && southY >= -0.5 && southY <= 12287.5));
+        if (coveredByPole) discard;
+      }
+      float t = clamp((vHeight + 6000.0) / 14000.0, 0.0, 1.0);
+      vec3 low = vec3(0.16, 0.055, 0.025);
+      vec3 mid = vec3(0.95, 0.38, 0.12);
+      vec3 high = vec3(1.0, 0.82, 0.52);
+      vec3 color = t < 0.55 ? mix(low, mid, t / 0.55) : mix(mid, high, (t - 0.55) / 0.45);
+      vec3 normal = normalize(cross(dFdx(vPosition), dFdy(vPosition)));
+      if (dot(normal, vPosition) < 0.0) normal = -normal;
+      vec3 physicalNormal = normalize(cross(dFdx(vPhysicalPosition), dFdy(vPhysicalPosition)));
+      vec3 surface = normalize(vSurface);
+      if (dot(physicalNormal, surface) < 0.0) physicalNormal = -physicalNormal;
+      float slope = degrees(acos(clamp(dot(physicalNormal, surface), 0.0, 1.0)));
+      if (viewMode > 0.5 && viewMode < 1.5) {
+        float s = clamp(slope / 35.0, 0.0, 1.0);
+        color = s < 0.33 ? mix(vec3(0.08, 0.42, 0.72), vec3(0.18, 0.78, 0.42), s / 0.33)
+          : s < 0.66 ? mix(vec3(0.18, 0.78, 0.42), vec3(0.98, 0.82, 0.20), (s - 0.33) / 0.33)
+          : mix(vec3(0.98, 0.82, 0.20), vec3(0.86, 0.12, 0.08), (s - 0.66) / 0.34);
+      } else if (viewMode > 1.5) {
+        color = t < 0.25 ? mix(vec3(0.06, 0.02, 0.25), vec3(0.18, 0.12, 0.62), t / 0.25)
+          : t < 0.5 ? mix(vec3(0.18, 0.12, 0.62), vec3(0.80, 0.12, 0.48), (t - 0.25) / 0.25)
+          : t < 0.75 ? mix(vec3(0.80, 0.12, 0.48), vec3(1.0, 0.48, 0.08), (t - 0.5) / 0.25)
+          : mix(vec3(1.0, 0.48, 0.08), vec3(1.0, 0.94, 0.68), (t - 0.75) / 0.25);
+      }
+      float lighting = 0.68 + 0.75 * max(dot(normal, normalize(lightDirection)), 0.0);
+      if (viewMode > 0.5 && viewMode < 1.5) lighting = 0.82 + 0.35 * max(dot(normal, normalize(lightDirection)), 0.0);
+      gl_FragColor = vec4(color * lighting, 1.0);
+    }`,
+  side: THREE.DoubleSide,
+  polygonOffset: true,
+  polygonOffsetFactor: -1,
+  polygonOffsetUnits: -1
+});
+
+function planetaryRadiusScale(lat) {
+  const p = lat * Math.PI / 180;
+  const flatteningRatio = EQUATORIAL_RADIUS_KM / POLAR_RADIUS_KM;
+  return 1 / Math.sqrt(Math.cos(p) ** 2 + flatteningRatio ** 2 * Math.sin(p) ** 2);
+}
+
+function geoVector(lat, lon, radius = 1) {
+  const p = lat * Math.PI / 180;
+  const l = lon * Math.PI / 180;
+  const scale = planetaryRadiusScale(lat) + radius - 1;
+  return new THREE.Vector3(scale * Math.cos(p) * Math.sin(l), scale * Math.sin(p), scale * Math.cos(p) * Math.cos(l));
+}
+
+function geoDirection(lat, lon) {
+  const p = lat * Math.PI / 180;
+  const l = lon * Math.PI / 180;
+  return new THREE.Vector3(Math.cos(p) * Math.sin(l), Math.sin(p), Math.cos(p) * Math.cos(l));
+}
+
+function geoVectorInto(lat, lon, out, radius = 1) {
+  const p = lat * Math.PI / 180;
+  const l = lon * Math.PI / 180;
+  const scale = planetaryRadiusScale(lat) + radius - 1;
+  out[0] = scale * Math.cos(p) * Math.sin(l);
+  out[1] = scale * Math.sin(p);
+  out[2] = scale * Math.cos(p) * Math.cos(l);
+}
+
+function polarCoordinate(x, y, hemisphere) {
+  const position = [0, 0, 0];
+  polarCoordinateInto(x, y, hemisphere, position);
+  return position;
+}
+
+function vectorGeo(vector) {
+  const v = vector.clone().normalize();
+  return { lat: Math.asin(v.y) * 180 / Math.PI, lon: (Math.atan2(v.x, v.z) * 180 / Math.PI + 360) % 360 };
+}
+
+function makeGrid(columns, rows, positionAt, uvAt) {
+  const vertexCount = (columns + 1) * (rows + 1);
+  const positions = new Float32Array(vertexCount * 3);
+  const uvs = new Float32Array(vertexCount * 2);
+  const indices = new Uint32Array(columns * rows * 6);
+  const position = [0, 0, 0];
+  const uv = [0, 0];
+  for (let y = 0; y <= rows; y++) {
+    for (let x = 0; x <= columns; x++) {
+      const index = y * (columns + 1) + x;
+      const u = x / columns, v = y / rows;
+      positionAt(u, v, position);
+      uvAt(u, v, uv);
+      positions.set(position, index * 3);
+      uvs.set(uv, index * 2);
+    }
+  }
+  let indexOffset = 0;
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < columns; x++) {
+      const a = y * (columns + 1) + x, b = a + columns + 1;
+      indices[indexOffset] = a;
+      indices[indexOffset + 1] = b;
+      indices[indexOffset + 2] = a + 1;
+      indices[indexOffset + 3] = b;
+      indices[indexOffset + 4] = b + 1;
+      indices[indexOffset + 5] = a + 1;
+      indexOffset += 6;
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function globalGeometry(root, level, tileX, tileY) {
+  const divisions = 1 << level;
+  const west = root.west + tileX / divisions * (root.east - root.west);
+  const east = root.west + (tileX + 1) / divisions * (root.east - root.west);
+  const north = root.north - tileY / divisions * (root.north - root.south);
+  const south = root.north - (tileY + 1) / divisions * (root.north - root.south);
+  return makeGrid(Math.min(160, 32 << level), Math.min(80, 16 << level),
+    (u, v, out) => geoVectorInto(north + (south - north) * v, west + (east - west) * u, out),
+    (u, v, out) => { out[0] = u; out[1] = 1 - v; });
+}
+
+function polarCoordinateInto(x, y, hemisphere, out) {
+  const center = (POLAR_SAMPLES - 1) / 2;
+  const dx = x - center, dy = center - y;
+  const rho = Math.hypot(dx, dy);
+  const latitude = 90 - 2 * Math.atan(
+    rho * Math.PI / (360 * POLAR_PIXELS_PER_DEGREE)
+  ) * 180 / Math.PI;
+  const longitude = hemisphere === "n" ? Math.atan2(dx, -dy) : Math.atan2(dx, dy);
+  geoVectorInto((hemisphere === "n" ? 1 : -1) * latitude, longitude * 180 / Math.PI, out);
+}
+
+function polarGeometry(level, tileX, tileY, hemisphere) {
+  const divisions = 1 << level;
+  const segments = Math.min(128, 24 << level);
+  return makeGrid(segments, segments,
+    (u, v, out) => polarCoordinateInto(
+      (tileX + u) / divisions * POLAR_SAMPLES,
+      (tileY + v) / divisions * POLAR_SAMPLES,
+      hemisphere,
+      out
+    ),
+    (u, v, out) => { out[0] = u; out[1] = 1 - v; });
+}
+
+function attachHeightCodes(geometry, tile) {
+  const uv = geometry.getAttribute("uv");
+  const positions = geometry.getAttribute("position");
+  const codes = new Float32Array(uv.count * 3);
+  for (let index = 0; index < uv.count; index++) {
+    const height = sampleTileHeight(tile, uv.getX(index) * (tile.width - 1),
+      (1 - uv.getY(index)) * (tile.height - 1));
+    const encoded = Math.max(0, Math.min(0xFFFFFF,
+      Math.round((height - HEIGHT_BASE) * HEIGHT_SCALE)));
+    codes[index * 3] = Math.floor(encoded / 65536);
+    codes[index * 3 + 1] = Math.floor(encoded / 256) % 256;
+    codes[index * 3 + 2] = encoded % 256;
+    const x = positions.getX(index), y = positions.getY(index), z = positions.getZ(index);
+    const latitude = Math.atan2(y, Math.hypot(x, z)) * 180 / Math.PI;
+    const baseRadius = planetaryRadiusScale(latitude);
+    const radius = (baseRadius + height / (EQUATORIAL_RADIUS_KM * 1000) * HEIGHT_EXAGGERATION) / baseRadius;
+    positions.setXYZ(index, x * radius, y * radius, z * radius);
+  }
+  geometry.setAttribute("encodedHeight", new THREE.Float32BufferAttribute(codes, 3));
+  positions.needsUpdate = true;
+  geometry.computeBoundingSphere();
+}
+
+function loadTerrainTile(url, entry, key) {
+  imagePixels(url).then(tile => {
+    activeTileLoads--;
+    if (activeTiles.get(key) === entry && desiredTileKeys.has(key)) {
+      tileBuildQueue.push({ tile, entry, key });
+      scheduleTileBuild();
+    } else if (activeTiles.get(key) === entry) {
+      activeTiles.delete(key);
+    }
+    pumpTileLoads();
+  }).catch(error => {
+    activeTileLoads--;
+    if (activeTiles.get(key) === entry) {
+      activeTiles.delete(key);
+      console.error(error);
+      $("status").textContent = `Error al cargar ${key}: ${error.message}`;
+    }
+    pumpTileLoads();
+  });
+}
+
+function scheduleTileBuild() {
+  if (tileBuildScheduled || !tileBuildQueue.length) return;
+  tileBuildScheduled = true;
+  requestAnimationFrame(() => {
+    tileBuildScheduled = false;
+    const task = tileBuildQueue.shift();
+    if (!task) return;
+    const { tile, entry, key } = task;
+    if (activeTiles.get(key) === entry && desiredTileKeys.has(key)) {
+      try {
+        const descriptor = entry.descriptor;
+        const geometry = descriptor.kind === "global"
+          ? globalGeometry(descriptor.root, descriptor.level, descriptor.x, descriptor.y)
+          : polarGeometry(descriptor.level, descriptor.x, descriptor.y, descriptor.id);
+        attachHeightCodes(geometry, tile);
+        const material = terrainMaterial.clone();
+        material.uniforms.isPolar.value = descriptor.kind === "polar" ? 1 : 0;
+        material.uniforms.viewMode.value = terrainViewMode;
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.frustumCulled = true;
+        entry.mesh = mesh;
+        cleanupUnusedTiles();
+        updateTileStatus();
+      } catch (error) {
+        activeTiles.delete(key);
+        console.error(error);
+        $("status").textContent = `Error al procesar ${key}: ${error.message}`;
+      }
+    }
+    scheduleTileBuild();
+  });
+}
+
+function readyTileCount() {
+  let count = 0;
+  for (const key of desiredTileKeys) {
+    if (activeTiles.get(key)?.mesh) count++;
+  }
+  return count;
+}
+
+function updateTileStatus(level = globalLevel()) {
+  const ready = readyTileCount();
+  const total = desiredTileKeys.size;
+  $("status").textContent = ready === total
+    ? `MOLA listo · ${total} teselas visibles · nivel global ${level}/5`
+    : `Cargando teselas visibles… ${ready}/${total} · nivel ${level}/5`;
+}
+
+function setTerrainView(value) {
+  const view = TERRAIN_VIEWS[value];
+  if (!view) return;
+  terrainViewMode = view.mode;
+  $("viewNote").textContent = view.note;
+  for (const entry of activeTiles.values()) {
+    if (entry.mesh) entry.mesh.material.uniforms.viewMode.value = terrainViewMode;
+  }
+}
+
+function removeTile(key, entry) {
+  if (entry.mesh) {
+    if (entry.rendered) scene.remove(entry.mesh);
+    entry.mesh.geometry.dispose();
+    entry.mesh.material.dispose();
+  }
+  activeTiles.delete(key);
+}
+
+function cleanupUnusedTiles() {
+  const desiredEntries = [...desiredTileKeys].map(key => activeTiles.get(key));
+  if (desiredEntries.some(entry => !entry?.mesh)) return;
+  for (const [key, entry] of activeTiles) {
+    if (!desiredTileKeys.has(key)) removeTile(key, entry);
+  }
+  for (const entry of desiredEntries) {
+    if (entry.rendered) continue;
+    scene.add(entry.mesh);
+    entry.rendered = true;
+  }
+}
+
+function pumpTileLoads() {
+  tileLoadQueue = tileLoadQueue.filter(({ key, entry }) => {
+    if (activeTiles.get(key) === entry && desiredTileKeys.has(key)) return true;
+    if (activeTiles.get(key) === entry) activeTiles.delete(key);
+    return false;
+  });
+  tileLoadQueue.sort((a, b) => a.priority - b.priority);
+  while (activeTileLoads < MAX_CONCURRENT_TILE_LOADS && tileLoadQueue.length) {
+    const { key, entry } = tileLoadQueue.shift();
+    activeTileLoads++;
+    loadTerrainTile(entry.url, entry, key);
+  }
+}
+
+function addDesired(desired, descriptor, url, lat, lon, viewDirection) {
+  const key = `${descriptor.kind}/${descriptor.id}/${descriptor.level}/${descriptor.x}/${descriptor.y}`;
+  desired.add(key);
+  if (!activeTiles.has(key)) {
+    const entry = { descriptor, mesh: null, url };
+    activeTiles.set(key, entry);
+    const tileCenter = geoVector(lat, lon);
+    const tileDirection = tileCenter.sub(camera.position).normalize();
+    tileLoadQueue.push({ key, entry, priority: 1 - viewDirection.dot(tileDirection) });
+  }
+}
+
+function angularlyVisible(lat, lon, angularRadius, frustum) {
+  const center = geoVector(lat, lon);
+  const terrainMargin = 0.012;
+  const patchRadius = Math.min(1.5, 2 * Math.sin(Math.min(Math.PI, angularRadius) / 2) + terrainMargin);
+  if (!frustum.intersectsSphere(new THREE.Sphere(center, patchRadius))) return false;
+  const toCamera = camera.position.clone().sub(center);
+  return center.dot(toCamera) >= -patchRadius * toCamera.length();
+}
+
+function globalLevel() {
+  const distance = camera.position.distanceTo(controls.target);
+  return distance < 1.17 ? 5 : distance < 1.34 ? 4 : distance < 1.68 ? 3 : distance < 2.25 ? 2 : distance < 3.1 ? 1 : 0;
+}
+
+function polarLevel() {
+  const distance = camera.position.distanceTo(controls.target);
+  return distance < 1.06 ? 4 : distance < 1.15 ? 3 : distance < 1.4 ? 2 : distance < 1.8 ? 1 : 0;
+}
+
+function scheduleTileUpdate() {
+  clearTimeout(updateTimer);
+  updateTimer = setTimeout(updateTiles, 180);
+}
+
+function updateTiles() {
+  if (!manifest) return;
+  const generation = ++updateGeneration;
+  const desired = new Set();
+  camera.updateMatrixWorld();
+  camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
+  const frustum = new THREE.Frustum().setFromProjectionMatrix(
+    new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
+  );
+  const viewDirection = camera.getWorldDirection(new THREE.Vector3());
+  const level = Math.min(globalLevel(), ...manifest.global.map(tile => tile.maxLevel));
+  for (const root of manifest.global) {
+    const n = 1 << level;
+    for (let y = 0; y < n; y++) {
+      const north = root.north - y / n * (root.north - root.south);
+      const south = root.north - (y + 1) / n * (root.north - root.south);
+      for (let x = 0; x < n; x++) {
+        const west = root.west + x / n * (root.east - root.west);
+        const east = root.west + (x + 1) / n * (root.east - root.west);
+        const lat = (north + south) / 2, lon = (west + east) / 2;
+        const angularRadius = Math.hypot((east - west) * Math.PI / 360 * Math.cos(lat * Math.PI / 180), (north - south) * Math.PI / 360);
+        if (!angularlyVisible(lat, lon, angularRadius, frustum)) continue;
+        addDesired(desired, { kind: "global", id: root.id, root, level, x, y },
+          `MOLA-tiles/global/${root.id}/${level}/${x}/${y}.png`, lat, lon, viewDirection);
+      }
+    }
+  }
+
+  const pLevel = polarLevel();
+  for (const pole of manifest.polar) {
+    const n = 1 << Math.min(pLevel, pole.maxLevel);
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        const x0 = x / n * POLAR_SAMPLES, x1 = (x + 1) / n * POLAR_SAMPLES;
+        const y0 = y / n * POLAR_SAMPLES, y1 = (y + 1) / n * POLAR_SAMPLES;
+        const centerPosition = polarCoordinate((x + 0.5) / n * POLAR_SAMPLES,
+          (y + 0.5) / n * POLAR_SAMPLES, pole.hemisphere);
+        const centerVector = new THREE.Vector3(...centerPosition);
+        const geo = vectorGeo(centerVector);
+        let angularRadius = 0;
+        for (const [px, py] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) {
+          const corner = new THREE.Vector3(...polarCoordinate(px, py, pole.hemisphere));
+          angularRadius = Math.max(angularRadius, Math.acos(THREE.MathUtils.clamp(centerVector.dot(corner), -1, 1)));
+        }
+        angularRadius = Math.min(Math.PI, angularRadius * 1.08 + 0.015);
+        if (!angularlyVisible(geo.lat, geo.lon, angularRadius, frustum)) continue;
+        addDesired(desired, { kind: "polar", id: pole.hemisphere, level: Math.log2(n), x, y },
+          `MOLA-tiles/polar/${pole.hemisphere}/${Math.log2(n)}/${x}/${y}.png`, geo.lat, geo.lon, viewDirection);
+      }
+    }
+  }
+
+  desiredTileKeys = desired;
+  for (let index = tileBuildQueue.length - 1; index >= 0; index--) {
+    const task = tileBuildQueue[index];
+    if (!desired.has(task.key) || activeTiles.get(task.key) !== task.entry) {
+      tileBuildQueue.splice(index, 1);
+    }
+  }
+  pumpTileLoads();
+  cleanupUnusedTiles();
+  if (generation === updateGeneration) {
+    updateTileStatus(level);
+  }
+}
+
+function addMarker(lat, lon, color, size) {
+  if (!markerTexture) {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 32;
+    const context = canvas.getContext("2d");
+    context.beginPath();
+    context.arc(16, 16, 15, 0, Math.PI * 2);
+    context.fillStyle = "#19120f";
+    context.fill();
+    context.beginPath();
+    context.arc(16, 16, 11, 0, Math.PI * 2);
+    context.fillStyle = "#fff";
+    context.fill();
+    markerTexture = new THREE.CanvasTexture(canvas);
+    markerTexture.colorSpace = THREE.SRGBColorSpace;
+  }
+  const marker = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: markerTexture,
+    color,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false
+  }));
+  marker.userData.geo = { lat, lon };
+  marker.userData.pixelSize = size;
+  marker.position.copy(geoVector(lat, lon, 1.05));
+  marker.renderOrder = 10;
+  scene.add(marker);
+  markers.add(marker);
+  if (manifest) positionMarkerOnRelief(marker);
+  return marker;
+}
+
+function removeMarker(marker) {
+  if (!marker) return;
+  scene.remove(marker);
+  marker.material.dispose();
+  markers.delete(marker);
+}
+
+async function positionMarkerOnRelief(marker) {
+  try {
+    const height = await elevationAt(marker.userData.geo);
+    if (!marker.parent) return;
+    const radius = 1 + height * HEIGHT_EXAGGERATION / (EQUATORIAL_RADIUS_KM * 1000) + 0.0015;
+    marker.position.copy(geoVector(marker.userData.geo.lat, marker.userData.geo.lon, radius + 0.0025));
+  } catch (error) {
+    console.error(error);
+    $("status").textContent = `No se pudo ubicar el marcador sobre el relieve: ${error.message}`;
+  }
+}
+
+function updateStartStatus() {
+  $("startStatus").textContent = `Inicio de ruta: ${routeStart.name} · ${routeStart.lat.toFixed(2)}°, ${routeStart.lon.toFixed(2)}° E.`;
+}
+
+function setStartPicking(enabled) {
+  pickingStart = enabled;
+  document.body.classList.toggle("picking-start", enabled);
+  $("pickStart").textContent = enabled ? "Haz clic en Marte para fijar el inicio…" : "Elegir inicio en el globo";
+  $("pickStart").classList.toggle("active", enabled);
+  $("startStatus").textContent = enabled
+    ? "Modo selección: haz clic en la superficie de Marte para fijar el inicio."
+    : `Inicio de ruta: ${routeStart.name} · ${routeStart.lat.toFixed(2)}°, ${routeStart.lon.toFixed(2)}° E.`;
+}
+
+function setRouteStart(point, name) {
+  routeStart = { lat: point.lat, lon: normalizeLongitude(point.lon), name };
+  if (routeStartMarker) removeMarker(routeStartMarker);
+  routeStartMarker = addMarker(routeStart.lat, routeStart.lon, 0x54f7d2, 20);
+  updateSiteInfo();
+  setStartPicking(false);
+  updateStartStatus();
+  drawRoute();
+  updateRouteStats();
+}
+
+function panCamera(horizontal, vertical) {
+  const distance = camera.position.distanceTo(controls.target);
+  const step = Math.max(0.006, distance * 0.035);
+  camera.updateMatrixWorld();
+  const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+  const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+  const offset = right.multiplyScalar(horizontal * step).add(up.multiplyScalar(vertical * step));
+  camera.position.add(offset);
+  controls.target.add(offset);
+  controls.update();
+  scheduleTileUpdate();
+  updateRouteVisibility();
+}
+
+function selectedSite() {
+  return SITES[+$("site").value] || SITES[0];
+}
+
+function updateSiteInfo() {
+  const site = selectedSite();
+  $("siteInfo").textContent = `${site.type} · ${site.mission} Coordenadas: ${site.lat.toFixed(2)}°, ${site.lon.toFixed(2)}° E.`;
+  $("missionInfo").innerHTML = `<b>${site.name}:</b> ${site.science}<br><b>Contexto:</b> ${site.context}<br><b>Datos:</b> topografía MOLA; el tiempo y los riesgos locales no se estiman con estos datos.`;
+  removeMarker(siteMarker);
+  const atStart = Math.abs(site.lat - routeStart.lat) < 1e-5 &&
+    Math.abs(normalizeLongitude(site.lon - routeStart.lon)) < 1e-5;
+  siteMarker = atStart ? null : addMarker(site.lat, site.lon, 0x00ffd0, 17);
+}
+
+function focusSite() {
+  const site = selectedSite();
+  const direction = geoVector(site.lat, site.lon);
+  camera.position.copy(direction.clone().multiplyScalar(1.7));
+  controls.target.set(0, 0, 0);
+  controls.update();
+  scheduleTileUpdate();
+}
+
+function addSiteToRoute() {
+  const site = selectedSite();
+  routePoints.push({ lat: site.lat, lon: site.lon, scientific: true, name: site.name });
+  drawRoute();
+  updateRouteStats();
+}
+
+function clearRouteGraphics() {
+  for (const marker of pointMeshes.splice(0)) {
+    removeMarker(marker);
+  }
+  if (routeLine) {
+    scene.remove(routeLine);
+    routeLine.traverse(object => {
+      object.geometry?.dispose();
+      object.material?.dispose();
+    });
+    routeLine = null;
+  }
+}
+
+function greatCircleKm(a, b) {
+  const p1 = a.lat * Math.PI / 180, p2 = b.lat * Math.PI / 180;
+  const dp = (b.lat - a.lat) * Math.PI / 180;
+  const dl = (b.lon - a.lon) * Math.PI / 180;
+  const h = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  return 2 * RADIUS_KM * Math.asin(Math.sqrt(Math.min(1, h)));
+}
+
+function interpolateGeo(a, b, t) {
+  const va = geoDirection(a.lat, a.lon), vb = geoDirection(b.lat, b.lon);
+  const angle = Math.acos(THREE.MathUtils.clamp(va.dot(vb), -1, 1));
+  if (angle < 1e-8) return a;
+  const v = va.multiplyScalar(Math.sin((1 - t) * angle) / Math.sin(angle))
+    .add(vb.multiplyScalar(Math.sin(t * angle) / Math.sin(angle)));
+  return vectorGeo(v);
+}
+
+function routePlanKey() {
+  return JSON.stringify({
+    start: [routeStart.lat, routeStart.lon],
+    stops: routePoints.map(point => [point.lat, point.lon]),
+    slopeLimit: +$("threshold").value
+  });
+}
+
+function routeTerrainPoint(startVector, tangent, alongKm, crossKm) {
+  const alongAngle = alongKm / RADIUS_KM;
+  const center = startVector.clone().multiplyScalar(Math.cos(alongAngle))
+    .addScaledVector(tangent, Math.sin(alongAngle)).normalize();
+  const side = center.clone().cross(tangent).normalize();
+  const crossAngle = crossKm / RADIUS_KM;
+  return vectorGeo(center.multiplyScalar(Math.cos(crossAngle)).addScaledVector(side, Math.sin(crossAngle)));
+}
+
+function terrainSpeedFactor(grade) {
+  return THREE.MathUtils.clamp(Math.exp(-3.5 * Math.abs(grade + 0.05) + 0.175), 0.2, 1.35);
+}
+
+function terrainDistanceKm(horizontalKm, elevationChangeM) {
+  return Math.hypot(horizontalKm, elevationChangeM / 1000);
+}
+
+async function planLeg(start, end, slopeLimit) {
+  const directDistance = greatCircleKm(start, end);
+  if (directDistance < 0.01) {
+    const height = await elevationAt(start);
+    return { points: [{ point: start, height }], distance: 0, optimized: true, coarse: false };
+  }
+  if (directDistance > MAX_SLOPE_OPTIMIZED_LEG_KM) {
+    const count = Math.min(600, Math.max(2, Math.ceil(directDistance / 2)));
+    const points = Array.from({ length: count + 1 }, (_, index) =>
+      interpolateGeo(start, end, index / count));
+    const heights = await Promise.all(points.map(elevationAt));
+    return {
+      points: points.map((point, index) => ({ point, height: heights[index] })),
+      distance: directDistance,
+      optimized: false,
+      coarse: directDistance / count > 2.01
+    };
+  }
+
+  const startVector = geoDirection(start.lat, start.lon);
+  const endVector = geoDirection(end.lat, end.lon);
+  const angle = Math.acos(THREE.MathUtils.clamp(startVector.dot(endVector), -1, 1));
+  const tangent = endVector.clone().addScaledVector(startVector, -Math.cos(angle)).normalize();
+  const columns = Math.max(2, Math.ceil(directDistance / 0.75));
+  const rows = 9;
+  const middleRow = (rows - 1) / 2;
+  const laneSpacingKm = 0.75;
+  const cellLengthKm = directDistance / columns;
+  const gridPoints = new Array(columns * rows);
+  for (let column = 0; column < columns; column++) {
+    const alongKm = directDistance * column / (columns - 1);
+    for (let row = 0; row < rows; row++) {
+      gridPoints[column * rows + row] = routeTerrainPoint(
+        startVector, tangent, alongKm, (row - middleRow) * laneSpacingKm
+      );
+    }
+  }
+  gridPoints[columns * rows - rows + middleRow] = end;
+  const heights = await Promise.all(gridPoints.map(elevationAt));
+  const nodeCount = gridPoints.length;
+  const costs = new Float64Array(nodeCount);
+  costs.fill(Infinity);
+  const parents = new Int32Array(nodeCount);
+  parents.fill(-1);
+  const open = new Uint8Array(nodeCount);
+  const closed = new Uint8Array(nodeCount);
+  const startIndex = middleRow;
+  const endIndex = (columns - 1) * rows + middleRow;
+  costs[startIndex] = 0;
+  open[startIndex] = 1;
+  const heuristic = index => {
+    const column = Math.floor(index / rows);
+    const row = index % rows;
+    return 0.7 * Math.hypot((columns - 1 - column) * cellLengthKm, (middleRow - row) * laneSpacingKm);
+  };
+  let reached = false;
+  for (let iteration = 0; iteration < nodeCount; iteration++) {
+    let current = -1;
+    let lowestScore = Infinity;
+    for (let index = 0; index < nodeCount; index++) {
+      if (!open[index]) continue;
+      const score = costs[index] + heuristic(index);
+      if (score < lowestScore) {
+        lowestScore = score;
+        current = index;
+      }
+    }
+    if (current < 0) break;
+    if (current === endIndex) {
+      reached = true;
+      break;
+    }
+    open[current] = 0;
+    closed[current] = 1;
+    const column = Math.floor(current / rows);
+    const row = current % rows;
+    for (let deltaColumn = -1; deltaColumn <= 1; deltaColumn++) {
+      for (let deltaRow = -1; deltaRow <= 1; deltaRow++) {
+        if (deltaColumn === 0 && deltaRow === 0) continue;
+        const nextColumn = column + deltaColumn;
+        const nextRow = row + deltaRow;
+        if (nextColumn < 0 || nextColumn >= columns || nextRow < 0 || nextRow >= rows) continue;
+        const next = nextColumn * rows + nextRow;
+        if (closed[next]) continue;
+        const horizontalKm = Math.hypot(deltaColumn * cellLengthKm, deltaRow * laneSpacingKm);
+        const elevationChange = heights[next] - heights[current];
+        const grade = elevationChange / Math.max(1, horizontalKm * 1000);
+        const stepKm = terrainDistanceKm(horizontalKm, elevationChange);
+        const slope = Math.atan(Math.abs(grade)) * 180 / Math.PI;
+        const highSlopePenalty = slope > slopeLimit
+          ? 1 + 2 * (slope - slopeLimit) / Math.max(1, slopeLimit)
+          : 1;
+        const travelCost = stepKm / terrainSpeedFactor(grade) * highSlopePenalty;
+        const candidate = costs[current] + travelCost;
+        if (candidate >= costs[next]) continue;
+        costs[next] = candidate;
+        parents[next] = current;
+        open[next] = 1;
+      }
+    }
+  }
+  if (!reached) {
+    throw new Error(`No se encontró un corredor transitable entre ${start.lat.toFixed(2)}°, ${start.lon.toFixed(2)}° y ${end.lat.toFixed(2)}°, ${end.lon.toFixed(2)}°.`);
+  }
+  const path = [];
+  for (let index = endIndex; index >= 0; index = parents[index]) {
+    path.push({ point: gridPoints[index], height: heights[index] });
+    if (index === startIndex) break;
+  }
+  path.reverse();
+  const pathDistance = path.slice(1).reduce((total, sample, index) => {
+    const horizontalKm = greatCircleKm(path[index].point, sample.point);
+    return total + terrainDistanceKm(horizontalKm, sample.height - path[index].height);
+  }, 0);
+  return { points: path, distance: pathDistance, optimized: true, coarse: false };
+}
+
+async function calculatePathMetrics(points, slopeLimit, vehicle) {
+  let distance = 0, hazardous = 0, maxSlope = 0, time = 0, energy = 0;
+  const profile = [];
+  for (let index = 0; index < points.length; index++) {
+    const sample = points[index];
+    if (index === 0) {
+      profile.push({ distance: 0, height: sample.height, hot: false });
+      continue;
+    }
+    const previous = points[index - 1];
+    const horizontalKm = greatCircleKm(previous.point, sample.point);
+    const elevationChange = sample.height - previous.height;
+    const grade = elevationChange / Math.max(1, horizontalKm * 1000);
+    const step = terrainDistanceKm(horizontalKm, elevationChange);
+    const slope = Math.atan(Math.abs(grade)) * 180 / Math.PI;
+    const hot = slope > slopeLimit;
+    distance += step;
+    if (hot) hazardous += step;
+    maxSlope = Math.max(maxSlope, slope);
+    time += step / Math.max(0.1, vehicle.speed * terrainSpeedFactor(grade));
+    energy += step * vehicle.whKm +
+      vehicle.massKg * 3.71 * Math.max(0, elevationChange) / (3600 * vehicle.efficiency);
+    profile.push({ distance, height: sample.height, hot });
+  }
+  return { distance, hazardous, maxSlope, time, energy, profile };
+}
+
+function getRoutePlan() {
+  const key = routePlanKey();
+  if (routePlanCache.key === key && routePlanCache.promise) return routePlanCache.promise;
+  const promise = (async () => {
+    const slopeLimit = +$("threshold").value;
+    const stops = [routeStart, ...routePoints];
+    const outboundLegs = [];
+    for (let index = 1; index < stops.length; index++) {
+      outboundLegs.push(await planLeg(stops[index - 1], stops[index], slopeLimit));
+    }
+    const last = stops[stops.length - 1];
+    const returnLeg = await planLeg(last, routeStart, slopeLimit);
+    const outboundPoints = [];
+    for (const leg of outboundLegs) {
+      outboundPoints.push(...(outboundPoints.length ? leg.points.slice(1) : leg.points));
+    }
+    return { outboundLegs, outboundPoints, returnLeg, slopeLimit };
+  })();
+  routePlanCache = { key, promise };
+  promise.catch(() => {
+    if (routePlanCache.promise === promise) routePlanCache = { key: "", promise: null };
+  });
+  return promise;
+}
+
+function drawRoute() {
+  const generation = ++routeDrawGeneration;
+  clearRouteGraphics();
+  routePoints.forEach(p => pointMeshes.push(addMarker(p.lat, p.lon, p.scientific ? 0xffd54f : 0xff4b2b, 16)));
+  if (!routePoints.length) return;
+  getRoutePlan().then(plan => {
+    if (generation !== routeDrawGeneration || !routePoints.length) return;
+    const routeSamples = [...plan.outboundPoints, ...plan.returnLeg.points.slice(1)];
+    const points = routeSamples.map(sample =>
+      geoVector(sample.point.lat, sample.point.lon, 1 + sample.height * HEIGHT_EXAGGERATION / (EQUATORIAL_RADIUS_KM * 1000) + 0.0035)
+    );
+    routeLine = new THREE.Group();
+    routeLine.userData.points = points;
+    scene.add(routeLine);
+    updateRouteVisibility();
+    const optimizedLegs = [...plan.outboundLegs, plan.returnLeg].filter(leg => leg.optimized).length;
+    $("routeMethod").textContent = `A*: ${optimizedLegs} tramo(s) local(es) sobre celdas MOLA de 0,75 km, priorizando menor pendiente y tiempo estimado. Modelo de velocidad empírico terrestre; no validado para Marte.`;
+  }).catch(error => {
+    if (generation !== routeDrawGeneration) return;
+    console.error(error);
+    $("status").textContent = `No se pudo dibujar la ruta sobre el relieve: ${error.message}`;
+  });
+}
+
+function normalizeLongitude(lon) {
+  return (lon % 360 + 360) % 360;
+}
+
+function updateRouteVisibility() {
+  if (!routeLine?.userData.points) return;
+  const points = routeLine.userData.points;
+  const cameraDirection = camera.position.clone().normalize();
+  const cameraDistance = Math.max(1, camera.position.length());
+  const visibleSegments = [];
+  for (let index = 1; index < points.length; index++) {
+    const midpoint = points[index - 1].clone().add(points[index]).multiplyScalar(0.5);
+    const threshold = midpoint.length() / cameraDistance;
+    if (midpoint.normalize().dot(cameraDirection) > threshold) {
+      visibleSegments.push(points[index - 1], points[index]);
+    }
+  }
+  for (const child of [...routeLine.children]) {
+    child.geometry.dispose();
+    routeLine.remove(child);
+  }
+  if (!visibleSegments.length) return;
+  const geometry = new THREE.BufferGeometry().setFromPoints(visibleSegments);
+  const outline = new THREE.LineSegments(geometry.clone(), new THREE.LineDashedMaterial({
+    color: 0x160b08, dashSize: 0.018, gapSize: 0.003, depthTest: false, depthWrite: false
+  }));
+  const route = new THREE.LineSegments(geometry, new THREE.LineDashedMaterial({
+    color: 0x00f0ff, dashSize: 0.012, gapSize: 0.006, depthTest: false, depthWrite: false
+  }));
+  outline.computeLineDistances();
+  route.computeLineDistances();
+  outline.renderOrder = route.renderOrder = 10;
+  routeLine.add(outline, route);
+}
+
+function scheduleRouteVisibility() {
+  const elapsed = performance.now() - routeVisibilityLastUpdate;
+  if (elapsed >= 80) {
+    routeVisibilityLastUpdate = performance.now();
+    updateRouteVisibility();
+    return;
+  }
+  if (routeVisibilityTimer) return;
+  routeVisibilityTimer = setTimeout(() => {
+    routeVisibilityTimer = 0;
+    routeVisibilityLastUpdate = performance.now();
+    updateRouteVisibility();
+  }, 80 - elapsed);
+}
+
+function globalTileAddress(lat, lon) {
+  const normalized = normalizeLongitude(lon);
+  const root = manifest.global.find(item => lat <= item.north && lat >= item.south && normalized >= item.west && normalized < item.east);
+  if (!root) throw new Error(`No hay cobertura global para ${lat.toFixed(2)}°, ${normalized.toFixed(2)}°.`);
+  const level = root.maxLevel, n = 1 << level;
+  const u = (normalized - root.west) / (root.east - root.west);
+  const v = (root.north - lat) / (root.north - root.south);
+  const x = Math.min(n - 1, Math.max(0, Math.floor(u * n)));
+  const y = Math.min(n - 1, Math.max(0, Math.floor(v * n)));
+  return {
+    url: `MOLA-tiles/global/${root.id}/${level}/${x}/${y}.png`,
+    px: (u * n - x) * 512,
+    py: (v * n - y) * 256
+  };
+}
+
+function polarSourcePosition(lat, lon) {
+  const hemisphere = lat >= 0 ? "n" : "s";
+  const rho = 360 * POLAR_PIXELS_PER_DEGREE / Math.PI *
+    Math.tan((Math.PI / 2 - Math.abs(lat) * Math.PI / 180) / 2);
+  const angle = lon * Math.PI / 180;
+  const center = (POLAR_SAMPLES - 1) / 2;
+  return {
+    hemisphere,
+    x: center + rho * Math.sin(angle),
+    y: center + (hemisphere === "n" ? rho : -rho) * Math.cos(angle)
+  };
+}
+
+function isPolarCovered(lat, lon) {
+  const source = polarSourcePosition(lat, lon);
+  return source.x >= -0.5 && source.x <= POLAR_SAMPLES - 0.5 &&
+    source.y >= -0.5 && source.y <= POLAR_SAMPLES - 0.5;
+}
+
+function polarTileAddress(lat, lon) {
+  const source = polarSourcePosition(lat, lon);
+  const level = manifest.polar.find(item => item.hemisphere === source.hemisphere)?.maxLevel;
+  if (level === undefined) throw new Error(`Falta la capa polar ${source.hemisphere.toUpperCase()}.`);
+  const divisions = 1 << level;
+  const x = Math.min(divisions - 1, Math.max(0, Math.floor(source.x / POLAR_SAMPLES * divisions)));
+  const y = Math.min(divisions - 1, Math.max(0, Math.floor(source.y / POLAR_SAMPLES * divisions)));
+  return {
+    url: `MOLA-tiles/polar/${source.hemisphere}/${level}/${x}/${y}.png`,
+    px: (source.x / POLAR_SAMPLES * divisions - x) * 256,
+    py: (source.y / POLAR_SAMPLES * divisions - y) * 256
+  };
+}
+
+function elevationAddress(point) {
+  return isPolarCovered(point.lat, point.lon)
+    ? polarTileAddress(point.lat, point.lon)
+    : globalTileAddress(point.lat, point.lon);
+}
+
+function imagePixels(url) {
+  if (pixelTiles.has(url)) {
+    const cached = pixelTiles.get(url);
+    pixelTiles.delete(url);
+    pixelTiles.set(url, cached);
+    return cached;
+  }
+  const promise = new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(image, 0, 0);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      resolve({ pixels, width: canvas.width, height: canvas.height });
+    };
+    image.onerror = () => reject(new Error(`No se pudo leer la tesela ${url}.`));
+    image.src = url;
+  });
+  pixelTiles.set(url, promise);
+  promise.catch(() => {
+    if (pixelTiles.get(url) === promise) pixelTiles.delete(url);
+  });
+  while (pixelTiles.size > MAX_PIXEL_CACHE) {
+    pixelTiles.delete(pixelTiles.keys().next().value);
+  }
+  return promise;
+}
+
+function sampleTileHeight(tile, pixelX, pixelY) {
+  const x = THREE.MathUtils.clamp(pixelX, 0, tile.width - 1);
+  const y = THREE.MathUtils.clamp(pixelY, 0, tile.height - 1);
+  const x0 = Math.floor(x), y0 = Math.floor(y);
+  const x1 = Math.min(tile.width - 1, x0 + 1);
+  const y1 = Math.min(tile.height - 1, y0 + 1);
+  const tx = x - x0, ty = y - y0;
+  const heightAt = (px, py) => {
+    const offset = (py * tile.width + px) * 4;
+    const encoded = tile.pixels[offset] * 65536 +
+      tile.pixels[offset + 1] * 256 + tile.pixels[offset + 2];
+    return encoded / HEIGHT_SCALE + HEIGHT_BASE;
+  };
+  const top = THREE.MathUtils.lerp(heightAt(x0, y0), heightAt(x1, y0), tx);
+  const bottom = THREE.MathUtils.lerp(heightAt(x0, y1), heightAt(x1, y1), tx);
+  return THREE.MathUtils.lerp(top, bottom, ty);
+}
+
+async function elevationAt(point) {
+  const address = elevationAddress(point);
+  const tile = await imagePixels(address.url);
+  return sampleTileHeight(tile, address.px, address.py);
+}
+
+function format(value) {
+  return value.toLocaleString("es", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+}
+
+function drawProfile(profile) {
+  const canvas = $("profile"), ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (profile.length < 2) return;
+  const low = Math.min(...profile.map(point => point.height));
+  const high = Math.max(...profile.map(point => point.height));
+  const distance = profile[profile.length - 1].distance || 1;
+  const x = value => 8 + value / distance * (canvas.width - 16);
+  const y = value => canvas.height - 18 - (value - low) / ((high - low) || 1) * (canvas.height - 36);
+  ctx.lineWidth = 3;
+  for (let i = 1; i < profile.length; i++) {
+    ctx.strokeStyle = profile[i].hot ? "#e53935" : "#9b8b7d";
+    ctx.beginPath();
+    ctx.moveTo(x(profile[i - 1].distance), y(profile[i - 1].height));
+    ctx.lineTo(x(profile[i].distance), y(profile[i].height));
+    ctx.stroke();
+  }
+  ctx.fillStyle = "#888";
+  ctx.font = "12px system-ui";
+  ctx.fillText(`${Math.round(high)} m`, 8, 13);
+  ctx.fillText(`${Math.round(low)} m`, 8, canvas.height - 3);
+}
+
+async function updateRouteStats() {
+  const generation = ++routeGeneration;
+  $("speedValue").textContent = format(+$("speed").value);
+  $("batteryValue").textContent = format(+$("battery").value);
+  $("thresholdValue").textContent = $("threshold").value;
+  if (!routePoints.length) {
+    $("routeStats").textContent = "Haz clic en el globo para trazar una ruta.";
+    $("verdict").innerHTML = "";
+    $("routeMethod").textContent = "";
+    drawProfile([]);
+    return;
+  }
+  if (!manifest) return;
+  $("routeStats").textContent = "Calculando corredor, pendientes y energía con el relieve MOLA…";
+  try {
+    const vehicle = {
+      speed: +$("speed").value,
+      massKg: +$("vehicleMass").value,
+      whKm: +$("vehicleWhKm").value,
+      batteryWh: +$("vehicleBattery").value,
+      efficiency: +$("vehicleEfficiency").value
+    };
+    if (Object.values(vehicle).some(value => !Number.isFinite(value) || value <= 0) ||
+        vehicle.efficiency > 1 || vehicle.massKg > 100000 || vehicle.whKm > 1000000 ||
+        vehicle.batteryWh > 100000000) {
+      throw new Error("Revisa los valores del vehículo: deben estar dentro de los límites indicados.");
+    }
+    const plan = await getRoutePlan();
+    if (generation !== routeGeneration) return;
+    const outbound = await calculatePathMetrics(plan.outboundPoints, plan.slopeLimit, vehicle);
+    const returning = await calculatePathMetrics(plan.returnLeg.points, plan.slopeLimit, vehicle);
+    if (generation !== routeGeneration) return;
+    const scientificStops = routePoints.filter(point => point.scientific).length;
+    const totalTime = outbound.time + returning.time + 1 + scientificStops * 0.25;
+    const totalEnergy = outbound.energy + returning.energy;
+    const longLegs = [...plan.outboundLegs, plan.returnLeg].filter(leg => !leg.optimized).length;
+    const marginWh = vehicle.batteryWh - totalEnergy;
+    const feasible = totalTime <= +$("battery").value && marginWh >= 0;
+    const departure = +$("departure").value;
+    const endsAtNight = departure < 6 || departure >= 18 || departure + totalTime - 1 > 18;
+    $("routeStats").innerHTML =
+      `<div class="kv"><span>Distancia planificada de ida</span><b>${format(outbound.distance)} km</b></div>` +
+      `<div class="kv"><span>Distancia de regreso</span><b>${format(returning.distance)} km</b></div>` +
+      `<div class="kv"><span>Total sobre terreno</span><b>${format(outbound.distance + returning.distance)} km</b></div>` +
+      `<div class="kv"><span>Tramos de pendiente alta (ida)</span><b>${format(outbound.hazardous)} km</b></div>` +
+      `<div class="kv"><span>Pendiente máxima (ida/regreso)</span><b>${format(Math.max(outbound.maxSlope, returning.maxSlope))}°</b></div>` +
+      `<div class="kv"><span>Paradas científicas</span><b>${scientificStops} (+${scientificStops * 15} min)</b></div>` +
+      `<div class="kv"><span>Tiempo ida y regreso + reserva</span><b>${format(totalTime)} h</b></div>` +
+      `<div class="kv"><span>Energía estimada</span><b>${format(totalEnergy)} / ${format(vehicle.batteryWh)} Wh</b></div>` +
+      `<div class="kv"><span>Margen estimado de batería</span><b>${format(marginWh)} Wh</b></div>`;
+    $("departureValue").textContent = `${Math.floor(departure)}:${departure % 1 ? "30" : "00"}`;
+    const caveat = longLegs
+      ? `<br><small>${longLegs} tramo(s) de más de ${MAX_SLOPE_OPTIMIZED_LEG_KM} km usan transecto geodésico; requieren planificación local.</small>`
+      : "";
+    $("verdict").innerHTML = `<div class="verdict ${feasible && !longLegs ? "ok" : "bad"}">${feasible && !longLegs ? "✔ Estimación dentro de los límites configurados" : "⚠ No confirmar como ruta operativa"}${longLegs ? caveat : ""}${endsAtNight ? "<br><small>La estimación indica llegada después de las 18:00; verifica luz y ventana de misión.</small>" : ""}<br><small>La energía no incluye consumos auxiliares, reserva de seguridad ni incertidumbre del terreno.</small></div>`;
+    drawProfile(outbound.profile);
+  } catch (error) {
+    if (generation !== routeGeneration) return;
+    console.error(error);
+    $("routeStats").textContent = `Error al calcular la ruta: ${error.message}`;
+    $("verdict").innerHTML = "";
+  }
+}
+
+function onPointerDown(event) {
+  if (event.button !== 0) return;
+  pointerStart = { x: event.clientX, y: event.clientY };
+}
+
+function onPointerUp(event) {
+  if (!pointerStart) return;
+  const isClick = event.button === 0 && Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y) <= 5;
+  pointerStart = null;
+  if (!isClick) return;
+  if (!manifest) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  raycaster.setFromCamera(new THREE.Vector2(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1
+  ), camera);
+  const objects = [base, ...[...activeTiles.values()].filter(item => item.rendered).map(item => item.mesh)];
+  const hit = raycaster.intersectObjects(objects, false)[0];
+  if (!hit) return;
+  const point = vectorGeo(hit.point);
+  if (pickingStart) {
+    setRouteStart(point, "Punto elegido en el globo");
+    return;
+  }
+  routePoints.push({ ...point, scientific: event.shiftKey || $("scientificStops").checked });
+  drawRoute();
+  updateRouteStats();
+}
+
+function resize() {
+  const rect = $("globeBox").getBoundingClientRect();
+  renderer.setSize(rect.width, rect.height, false);
+  camera.aspect = rect.width / rect.height;
+  camera.updateProjectionMatrix();
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const distance = camera.position.distanceTo(controls.target);
+  const zoomProgress = THREE.MathUtils.clamp(
+    (controls.maxDistance - distance) / (controls.maxDistance - controls.minDistance), 0, 1
+  );
+  const zoomEase = Math.pow(zoomProgress, 1.7);
+  controls.rotateSpeed = 1 - 0.985 * zoomEase;
+  controls.zoomSpeed = 1;
+  controls.update();
+  const zoom = THREE.MathUtils.clamp((distance - controls.minDistance) / (3.15 - controls.minDistance), 0, 1);
+  const easedZoom = zoom * zoom * (3 - 2 * zoom);
+  const fieldOfView = THREE.MathUtils.lerp(8, 42, easedZoom);
+  if (Math.abs(camera.fov - fieldOfView) > 0.05) {
+    camera.fov = fieldOfView;
+    camera.updateProjectionMatrix();
+  }
+  for (const marker of markers) {
+    const markerDistance = camera.position.distanceTo(marker.position);
+    const cameraDirection = camera.position.clone().normalize();
+    marker.visible = marker.position.clone().normalize().dot(cameraDirection) >
+      marker.position.length() / Math.max(1, camera.position.length());
+    const worldPerPixel = 2 * markerDistance * Math.tan(camera.fov * Math.PI / 360) /
+      Math.max(1, renderer.domElement.clientHeight);
+    const size = marker.userData.pixelSize * worldPerPixel;
+    marker.scale.set(size, size, 1);
+  }
+  renderer.render(scene, camera);
+}
+
+controls.addEventListener("change", () => {
+  scheduleTileUpdate();
+  scheduleRouteVisibility();
+});
+renderer.domElement.addEventListener("pointerdown", onPointerDown);
+renderer.domElement.addEventListener("pointerup", onPointerUp);
+window.addEventListener("resize", resize);
+$("undo").addEventListener("click", () => { routePoints.pop(); drawRoute(); updateRouteStats(); });
+$("clear").addEventListener("click", () => { routePoints.length = 0; drawRoute(); updateRouteStats(); });
+$("site").innerHTML = SITES.map((site, index) => `<option value="${index}">${site.name}</option>`).join("");
+$("site").addEventListener("change", updateSiteInfo);
+$("terrainView").addEventListener("change", event => setTerrainView(event.target.value));
+$("focusSite").addEventListener("click", focusSite);
+$("addSite").addEventListener("click", addSiteToRoute);
+$("pickStart").addEventListener("click", () => setStartPicking(!pickingStart));
+$("siteAsStart").addEventListener("click", () => {
+  const site = selectedSite();
+  setRouteStart(site, site.name);
+});
+$("resetStart").addEventListener("click", () => setRouteStart(LANDING, "Jezero · base Perseverance"));
+$("recenterCamera").addEventListener("click", () => {
+  controls.target.set(0, 0, 0);
+  controls.update();
+  scheduleTileUpdate();
+});
+document.querySelectorAll("[data-pan-x], [data-pan-y]").forEach(button => {
+  button.addEventListener("click", () => {
+    panCamera(+(button.dataset.panX || 0), +(button.dataset.panY || 0));
+  });
+});
+["speed", "battery", "departure", "vehicleMass", "vehicleWhKm", "vehicleBattery", "vehicleEfficiency"]
+  .forEach(id => $(id).addEventListener("input", updateRouteStats));
+$("threshold").addEventListener("input", () => { drawRoute(); updateRouteStats(); });
+routeStartMarker = addMarker(routeStart.lat, routeStart.lon, 0x54f7d2, 20);
+updateStartStatus();
+updateSiteInfo();
+resize();
+animate();
+
+fetch("MOLA-tiles/manifest.json").then(response => {
+  if (!response.ok) throw new Error(`HTTP ${response.status} al abrir MOLA-tiles/manifest.json`);
+  return response.json();
+}).then(data => {
+  if (!Array.isArray(data.global) || data.global.length !== 16 || !Array.isArray(data.polar) || data.polar.length !== 2) {
+    throw new Error("El manifiesto no contiene las 16 teselas globales y las dos capas polares esperadas.");
+  }
+  manifest = data;
+  $("status").textContent = "Colección MOLA preparada · cargando solo las teselas visibles…";
+  for (const marker of markers) positionMarkerOnRelief(marker);
+  updateTiles();
+  updateRouteStats();
+}).catch(error => {
+  console.error(error);
+  $("status").textContent = `No se pudo cargar MOLA: ${error.message}. Ejecuta prepare_mola.py y abre esta página desde un servidor local.`;
+});
+</script>
+</body>
+</html>
