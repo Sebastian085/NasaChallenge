@@ -7,7 +7,7 @@
 <style>
 :root{color-scheme:light dark;--bg:#f4eee8;--fg:#241a16;--card:#fff;--mut:#75675e;--accent:#c1440e;--line:#e2d6cc}
 @media(prefers-color-scheme:dark){:root{--bg:#16100e;--fg:#f1e6df;--card:#241a17;--mut:#a89588;--accent:#ff7a45;--line:#3a2c27}}
-*{box-sizing:border-box}body{margin:0;padding:14px;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif}
+*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;padding:14px;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif}
 h1{font-size:20px;margin:0 0 3px}.sub,.note{font-size:13px;color:var(--mut)}
 .layout{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(280px,1fr);gap:12px;margin-top:12px}
 @media(max-width:850px){.layout{grid-template-columns:1fr}}
@@ -24,6 +24,7 @@ h1{font-size:20px;margin:0 0 3px}.sub,.note{font-size:13px;color:var(--mut)}
 .camera-pad .pan-down{grid-column:2;grid-row:3}
 body.picking-start #globeBox canvas{cursor:crosshair}
 label{display:block;margin:7px 0}input[type=range]{width:100%}
+input[type=number],input[type=text],select{width:100%;padding:5px 7px;margin-top:2px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font-size:14px}
 button{background:var(--accent);color:white;border:0;border-radius:8px;padding:7px 12px;font-size:14px;cursor:pointer;margin:2px 4px 2px 0}
 button.secondary{background:transparent;color:var(--fg);border:1px solid var(--line)}
 .kv{display:flex;justify-content:space-between;border-bottom:1px dashed var(--line);padding:3px 0}
@@ -58,7 +59,6 @@ button.secondary{background:transparent;color:var(--fg);border:1px solid var(--l
           <option value="elevation">Elevación · MOLA</option>
           <option value="slope">Pendiente · derivada de MOLA</option>
           <option value="altimetry">Altimetría · falso color tipo IR</option>
-          <option value="climate" disabled>Clima · fuente no configurada</option>
         </select>
       </label>
       <div id="viewNote" class="note">Colores de elevación MOLA. La vista tipo IR es una paleta de altitud, no una imagen térmica.</div>
@@ -67,7 +67,7 @@ button.secondary{background:transparent;color:var(--fg);border:1px solid var(--l
   </section>
   <aside>
     <div class="card">
-      <h2>Parámetros</h2>
+      <h2>Sitio</h2>
       <label>Sitio de exploración
         <select id="site"></select>
       </label>
@@ -76,32 +76,94 @@ button.secondary{background:transparent;color:var(--fg);border:1px solid var(--l
         <button id="focusSite" class="secondary">Enfocar sitio</button>
         <button id="addSite" class="secondary">Añadir como parada</button>
       </div>
-      <label>Umbral de pendiente alta: <b id="thresholdValue">8</b>°
-        <input id="threshold" type="range" min="1" max="25" step="1" value="8">
+      <label><input id="showPois" type="checkbox"> Capa de puntos de interés (puntos violeta; al elegir uno en el menú se marca en cian)</label>
+      <div class="note">Coordenadas aproximadas; verifícalas con la fuente de cada misión antes de usarlas en un informe.</div>
+    </div>
+    <div class="card">
+      <h2>Parámetros de la ruta</h2>
+      <label>Tipo de explorador
+        <select id="explorer">
+          <option value="human">Humano (caminata EVA)</option>
+          <option value="crewed">Rover presurizado tripulado (concepto)</option>
+          <option value="rover">Rover robótico (tipo Perseverance)</option>
+        </select>
       </label>
-      <label>Velocidad: <b id="speedValue">2,5</b> km/h
-        <input id="speed" type="range" min="1" max="4" step=".1" value="2.5">
+      <label>Prioridad de la ruta
+        <select id="routeMode">
+          <option value="safe">Más segura (evita pendientes)</option>
+          <option value="short">Más corta (ignora pendientes)</option>
+        </select>
       </label>
-      <label>Autonomía: <b id="batteryValue">8</b> h
-        <input id="battery" type="range" min="4" max="10" step=".5" value="8">
+      <label><input id="roundTrip" type="checkbox" checked> Incluir regreso al inicio</label>
+      <label>Umbral de pendiente regional (°)
+        <input id="threshold" type="number" min="1" max="45" step="1" value="8">
       </label>
+      <div class="note">Escala regional: MOLA (~460 m/píxel) y celdas de 0,75 km suavizan el terreno. Un tramo de 5° aquí puede esconder muros, rocas o dunas mucho más empinados; úsalo con margen.</div>
+      <label><span id="speedLabel">Velocidad en terreno plano (km/h)</span>
+        <input id="speed" type="number" min="0.01" max="100" step="0.1" value="2.5">
+      </label>
+      <label><span id="autonomyLabel">Autonomía de operación (h)</span>
+        <input id="battery" type="number" min="0.1" max="1000" step="0.5" value="8">
+      </label>
+      <label>Reserva de tiempo (h)
+        <input id="reserve" type="number" min="0" max="100" step="0.25" value="1">
+      </label>
+      <label>Tiempo por parada científica (min)
+        <input id="stopMin" type="number" min="0" max="1440" step="5" value="15">
+      </label>
+      <div id="roverFields">
       <label>Masa del vehículo (kg)
         <input id="vehicleMass" type="number" min="1" max="100000" step="1" value="300">
       </label>
-      <label>Consumo base (Wh/km)
+      <label>Consumo base en terreno plano (Wh/km)
         <input id="vehicleWhKm" type="number" min="1" max="1000000" step="10" value="500">
       </label>
-      <label>Batería (Wh)
+      <label>Capacidad de batería (Wh)
         <input id="vehicleBattery" type="number" min="1" max="100000000" step="100" value="20000">
       </label>
-      <label>Eficiencia de tracción
+      <label>Eficiencia de tracción (0,05 a 1)
         <input id="vehicleEfficiency" type="number" min=".05" max="1" step=".05" value=".65">
       </label>
-      <label>Hora solar de salida: <b id="departureValue">9:00</b>
-        <input id="departure" type="range" min="0" max="24" step=".5" value="9">
+      </div>
+      <div id="humanFields" hidden>
+      <label id="walkSpeedRow" hidden>Velocidad a pie en walkback (km/h)
+        <input id="walkSpeed" type="number" min="0.1" max="10" step="0.1" value="2">
       </label>
-      <label><input id="scientificStops" type="checkbox"> Marcar cada parada como científica (también Shift + clic)</label>
-      <div class="note">Reserva de 1 h · 15 min por parada. Los parámetros del vehículo son demostrativos y deben sustituirse por datos de misión validados.</div>
+      <label id="maxFromBaseRow">Distancia máxima desde la base (km)
+        <input id="maxFromBase" type="number" min="0.1" max="1000" step="0.5" value="5">
+      </label>
+      <label>Oxígeno disponible (L)
+        <input id="o2Capacity" type="number" min="1" max="100000" step="10" value="500">
+      </label>
+      <label>Consumo de oxígeno caminando (L/h)
+        <input id="o2Walk" type="number" min="0" max="1000" step="1" value="50">
+      </label>
+      <label>Consumo en paradas y reserva (L/h)
+        <input id="o2Rest" type="number" min="0" max="1000" step="1" value="20">
+      </label>
+      </div>
+      <label><input id="scientificStops" type="checkbox"> Marcar cada parada nueva como científica (también Shift + clic)</label>
+      <div class="note" id="paramNote">Todos los valores son editables; los iniciales son solo de ejemplo. La velocidad baja con la pendiente (factor 1 − pendiente/35°, mínimo 20 %) y nunca sube por encima de la indicada. La energía suma el consumo base por km recorrido y el trabajo contra la gravedad (3,71 m/s²) en las subidas.</div>
+    </div>
+    <div class="card">
+      <h2>Condiciones del sitio</h2>
+      <div class="note">No existe un servicio público en tiempo real con las condiciones de Marte: los datos de estaciones como REMS (Curiosity) y MEDA (Perseverance) se publican con retraso en el archivo PDS de la NASA. Ingresa aquí la última lectura que tengas, con su fuente y fecha o sol.</div>
+      <label>Fuente y sol o fecha de la lectura
+        <input id="condSource" type="text" placeholder="Ej.: REMS, sol 4000">
+      </label>
+      <label>Temperatura mínima (°C)
+        <input id="condTmin" type="number" step="1">
+      </label>
+      <label>Temperatura máxima (°C)
+        <input id="condTmax" type="number" step="1">
+      </label>
+      <label>Presión (Pa)
+        <input id="condPressure" type="number" min="0" step="1">
+      </label>
+      <label>Temperatura mínima admisible del equipo o traje (°C, opcional)
+        <input id="condTlimit" type="number" step="1">
+      </label>
+      <div id="condSummary" class="note">Sin condiciones ingresadas.</div>
     </div>
     <div class="card">
       <h2>Ruta</h2>
@@ -119,8 +181,8 @@ button.secondary{background:transparent;color:var(--fg);border:1px solid var(--l
         <button id="clear" class="secondary">Borrar ruta</button>
       </div>
     </div>
-    <div class="card"><h2>Contexto del sitio</h2><div id="missionInfo" class="note">Selecciona un sitio para ver el contexto de la misión.</div></div>
-    <div class="card note">Prototipo de apoyo a planificación: no está certificado para operación NASA. MOLA (≈460 m/píxel global) no resuelve rocas ni peligros locales. Las pendientes, rodeos y energía son estimaciones; los tramos >50 km no optimizan rodeos. El clima no está conectado todavía.</div>
+    <div class="card"><h2>Contexto del sitio</h2><div id="missionInfo" class="note">Selecciona un sitio para ver su interés científico.</div></div>
+    <div class="card note">Prototipo de apoyo a planificación: no está certificado para operación NASA. MOLA (≈460 m/píxel global) no resuelve rocas ni peligros locales. Las pendientes, rodeos, tiempos y energía son estimaciones; los tramos >50 km no optimizan rodeos.</div>
   </aside>
 </div>
 <script type="module">
@@ -139,14 +201,23 @@ const HEIGHT_EXAGGERATION = 1;
 const MAX_PIXEL_CACHE = 64;
 const MAX_CONCURRENT_TILE_LOADS = 8;
 const MAX_SLOPE_OPTIMIZED_LEG_KM = 50;
+const MARS_GRAVITY = 3.71;
 const LANDING = { lat: 18.4447, lon: 77.4509 };
 const SITES = [
-  { name: "Jezero", lat: 18.4447, lon: 77.4509, type: "Aterrizaje real", mission: "Perseverance, Octavia E. Butler Landing.", science: "Antiguo lago y delta; búsqueda de biofirmas. Riesgos regionales: borde del cráter y frente del delta.", context: "MEDA (Perseverance) midió en Jezero temperaturas y presión; las condiciones cambian con la estación y hora solar." },
-  { name: "Valles Marineris", lat: -13.9, lon: 301.6, type: "Sitio hipotético", mission: "No hay misión aterrizada en este punto.", science: "Cañón de miles de kilómetros con capas geológicas expuestas. Las paredes y taludes pueden ser muy empinados.", context: "No hay estación meteorológica local; las condiciones no se infieren aquí." },
-  { name: "Olympus Mons", lat: 18.65, lon: 226.2, type: "Sitio hipotético", mission: "No hay misión aterrizada en este punto.", science: "Gran volcán de escudo; estudiar su historia volcánica. El relieve regional de MOLA no describe peligros locales.", context: "No hay estación meteorológica local; las condiciones no se infieren aquí." },
-  { name: "Cráter Gale", lat: -4.5895, lon: 137.4417, type: "Aterrizaje real", mission: "Curiosity, Bradbury Landing.", science: "Capas de arcilla y sulfatos en la montaña central; terreno y pendientes varían mucho.", context: "Curiosity lleva REMS y RAD en Gale. No se muestran lecturas actuales ni se extrapolan a otros sitios." },
-  { name: "Cuenca Hellas", lat: -42.4, lon: 70.5, type: "Sitio hipotético", mission: "No hay misión aterrizada en este punto.", science: "Gran cuenca de impacto profunda; la elevación cambia la presión ambiental.", context: "No hay estación meteorológica local; las condiciones no se infieren aquí." },
-  { name: "Meridiani Planum", lat: -1.95, lon: 354.47, type: "Aterrizaje histórico", mission: "Opportunity aterrizó en Eagle Crater y operó entre 2004 y 2018.", science: "Región donde Opportunity investigó rocas sedimentarias y hematita.", context: "No se muestran mediciones meteorológicas locales en este prototipo." }
+  { name: "Jezero", lat: 18.4447, lon: 77.4509, type: "Aterrizaje real", mission: "Perseverance, Octavia E. Butler Landing.", science: "Antiguo lago y delta; búsqueda de biofirmas. Riesgos regionales: borde del cráter y frente del delta." },
+  { name: "Valles Marineris", lat: -13.9, lon: 301.6, type: "Sitio hipotético", mission: "No hay misión aterrizada en este punto.", science: "Cañón de miles de kilómetros con capas geológicas expuestas. Las paredes y taludes pueden ser muy empinados." },
+  { name: "Olympus Mons", lat: 18.65, lon: 226.2, type: "Sitio hipotético", mission: "No hay misión aterrizada en este punto.", science: "Gran volcán de escudo; estudiar su historia volcánica. El relieve regional de MOLA no describe peligros locales." },
+  { name: "Cráter Gale", lat: -4.5895, lon: 137.4417, type: "Aterrizaje real", mission: "Curiosity, Bradbury Landing.", science: "Capas de arcilla y sulfatos en la montaña central; terreno y pendientes varían mucho." },
+  { name: "Cuenca Hellas", lat: -42.4, lon: 70.5, type: "Sitio hipotético", mission: "No hay misión aterrizada en este punto.", science: "Gran cuenca de impacto profunda, una de las mayores depresiones de Marte." },
+  { name: "Meridiani Planum", lat: -1.95, lon: 354.47, type: "Aterrizaje histórico", mission: "Opportunity aterrizó en Eagle Crater y operó entre 2004 y 2018.", science: "Región donde Opportunity investigó rocas sedimentarias y hematita." },
+  { name: "Viking 1 · Chryse Planitia", lat: 22.48, lon: 312.05, type: "Aterrizaje histórico", mission: "Viking 1 aterrizó en 1976 y operó hasta 1982.", science: "Primer aterrizador de larga duración en Marte; analizó suelo y atmósfera en Chryse Planitia." },
+  { name: "Viking 2 · Utopia Planitia", lat: 47.64, lon: 134.26, type: "Aterrizaje histórico", mission: "Viking 2 aterrizó en 1976 y operó hasta 1980.", science: "Llanura de Utopia Planitia; la misión fotografió escarcha sobre el suelo." },
+  { name: "Mars Pathfinder · Ares Vallis", lat: 19.3, lon: 326.5, type: "Aterrizaje histórico", mission: "Pathfinder aterrizó en 1997 y desplegó el rover Sojourner.", science: "Ares Vallis, una antigua llanura de inundación." },
+  { name: "Spirit · Cráter Gusev", lat: -14.57, lon: 175.47, type: "Aterrizaje histórico", mission: "Spirit aterrizó en 2004; perdió contacto en 2010.", science: "Cráter Gusev; investigó rocas volcánicas y señales de agua en el pasado." },
+  { name: "Phoenix · llanuras árticas", lat: 68.22, lon: 234.25, type: "Aterrizaje histórico", mission: "Phoenix aterrizó en 2008 y operó unos cinco meses.", science: "Excavó el suelo del norte y confirmó hielo de agua bajo la superficie." },
+  { name: "InSight · Elysium Planitia", lat: 4.5, lon: 135.62, type: "Aterrizaje histórico", mission: "InSight aterrizó en 2018; la misión terminó en 2022.", science: "Estudió los sismos y el interior de Marte." },
+  { name: "Mawrth Vallis", lat: 22.3, lon: 343.5, type: "Zona de interés", mission: "No hay misión aterrizada en este punto.", science: "Arcillas detectadas desde órbita; candidata para estudiar ambientes antiguos con agua." },
+  { name: "Nili Fossae", lat: 21.0, lon: 74.5, type: "Zona de interés", mission: "No hay misión aterrizada en este punto.", science: "Minerales como olivino y carbonatos detectados desde órbita, cerca de Jezero." }
 ];
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x100b0b);
@@ -724,7 +795,7 @@ function selectedSite() {
 function updateSiteInfo() {
   const site = selectedSite();
   $("siteInfo").textContent = `${site.type} · ${site.mission} Coordenadas: ${site.lat.toFixed(2)}°, ${site.lon.toFixed(2)}° E.`;
-  $("missionInfo").innerHTML = `<b>${site.name}:</b> ${site.science}<br><b>Contexto:</b> ${site.context}<br><b>Datos:</b> topografía MOLA; el tiempo y los riesgos locales no se estiman con estos datos.`;
+  $("missionInfo").innerHTML = `<b>${site.name}:</b> ${site.science}<br><b>Datos:</b> topografía MOLA; los riesgos locales no se estiman con estos datos.`;
   removeMarker(siteMarker);
   const atStart = Math.abs(site.lat - routeStart.lat) < 1e-5 &&
     Math.abs(normalizeLongitude(site.lon - routeStart.lon)) < 1e-5;
@@ -782,7 +853,9 @@ function routePlanKey() {
   return JSON.stringify({
     start: [routeStart.lat, routeStart.lon],
     stops: routePoints.map(point => [point.lat, point.lon]),
-    slopeLimit: +$("threshold").value
+    slopeLimit: +$("threshold").value,
+    mode: $("routeMode").value,
+    roundTrip: $("roundTrip").checked
   });
 }
 
@@ -795,15 +868,21 @@ function routeTerrainPoint(startVector, tangent, alongKm, crossKm) {
   return vectorGeo(center.multiplyScalar(Math.cos(crossAngle)).addScaledVector(side, Math.sin(crossAngle)));
 }
 
+function slopeDegrees(grade) {
+  return Math.atan(Math.abs(grade)) * 180 / Math.PI;
+}
+
+// Factor de velocidad del rover: baja linealmente con la pendiente (0° = 100 %, 35° = 20 % mínimo)
+// y nunca supera la velocidad que el usuario indicó para terreno plano.
 function terrainSpeedFactor(grade) {
-  return THREE.MathUtils.clamp(Math.exp(-3.5 * Math.abs(grade + 0.05) + 0.175), 0.2, 1.35);
+  return THREE.MathUtils.clamp(1 - slopeDegrees(grade) / 35, 0.2, 1);
 }
 
 function terrainDistanceKm(horizontalKm, elevationChangeM) {
   return Math.hypot(horizontalKm, elevationChangeM / 1000);
 }
 
-async function planLeg(start, end, slopeLimit) {
+async function planLeg(start, end, slopeLimit, shortest) {
   const directDistance = greatCircleKm(start, end);
   if (directDistance < 0.01) {
     const height = await elevationAt(start);
@@ -827,10 +906,10 @@ async function planLeg(start, end, slopeLimit) {
   const angle = Math.acos(THREE.MathUtils.clamp(startVector.dot(endVector), -1, 1));
   const tangent = endVector.clone().addScaledVector(startVector, -Math.cos(angle)).normalize();
   const columns = Math.max(2, Math.ceil(directDistance / 0.75));
-  const rows = 9;
+  const rows = 15;
   const middleRow = (rows - 1) / 2;
   const laneSpacingKm = 0.75;
-  const cellLengthKm = directDistance / columns;
+  const cellLengthKm = directDistance / (columns - 1);
   const gridPoints = new Array(columns * rows);
   for (let column = 0; column < columns; column++) {
     const alongKm = directDistance * column / (columns - 1);
@@ -891,11 +970,13 @@ async function planLeg(start, end, slopeLimit) {
         const elevationChange = heights[next] - heights[current];
         const grade = elevationChange / Math.max(1, horizontalKm * 1000);
         const stepKm = terrainDistanceKm(horizontalKm, elevationChange);
-        const slope = Math.atan(Math.abs(grade)) * 180 / Math.PI;
+        const slope = slopeDegrees(grade);
         const highSlopePenalty = slope > slopeLimit
-          ? 1 + 2 * (slope - slopeLimit) / Math.max(1, slopeLimit)
+          ? 5 + 4 * (slope - slopeLimit) / Math.max(1, slopeLimit)
           : 1;
-        const travelCost = stepKm / terrainSpeedFactor(grade) * highSlopePenalty;
+        const travelCost = shortest
+          ? stepKm
+          : stepKm / terrainSpeedFactor(grade) * highSlopePenalty;
         const candidate = costs[current] + travelCost;
         if (candidate >= costs[next]) continue;
         costs[next] = candidate;
@@ -920,7 +1001,7 @@ async function planLeg(start, end, slopeLimit) {
   return { points: path, distance: pathDistance, optimized: true, coarse: false };
 }
 
-async function calculatePathMetrics(points, slopeLimit, vehicle) {
+function calculatePathMetrics(points, slopeLimit, vehicle) {
   let distance = 0, hazardous = 0, maxSlope = 0, time = 0, energy = 0;
   const profile = [];
   for (let index = 0; index < points.length; index++) {
@@ -934,14 +1015,14 @@ async function calculatePathMetrics(points, slopeLimit, vehicle) {
     const elevationChange = sample.height - previous.height;
     const grade = elevationChange / Math.max(1, horizontalKm * 1000);
     const step = terrainDistanceKm(horizontalKm, elevationChange);
-    const slope = Math.atan(Math.abs(grade)) * 180 / Math.PI;
+    const slope = slopeDegrees(grade);
     const hot = slope > slopeLimit;
     distance += step;
     if (hot) hazardous += step;
     maxSlope = Math.max(maxSlope, slope);
-    time += step / Math.max(0.1, vehicle.speed * terrainSpeedFactor(grade));
+    time += step / (vehicle.speed * terrainSpeedFactor(grade));
     energy += step * vehicle.whKm +
-      vehicle.massKg * 3.71 * Math.max(0, elevationChange) / (3600 * vehicle.efficiency);
+      vehicle.massKg * MARS_GRAVITY * Math.max(0, elevationChange) / (3600 * vehicle.efficiency);
     profile.push({ distance, height: sample.height, hot });
   }
   return { distance, hazardous, maxSlope, time, energy, profile };
@@ -952,24 +1033,32 @@ function getRoutePlan() {
   if (routePlanCache.key === key && routePlanCache.promise) return routePlanCache.promise;
   const promise = (async () => {
     const slopeLimit = +$("threshold").value;
+    const shortest = $("routeMode").value === "short";
+    const roundTrip = $("roundTrip").checked;
     const stops = [routeStart, ...routePoints];
     const outboundLegs = [];
     for (let index = 1; index < stops.length; index++) {
-      outboundLegs.push(await planLeg(stops[index - 1], stops[index], slopeLimit));
+      outboundLegs.push(await planLeg(stops[index - 1], stops[index], slopeLimit, shortest));
     }
     const last = stops[stops.length - 1];
-    const returnLeg = await planLeg(last, routeStart, slopeLimit);
+    const returnLeg = roundTrip
+      ? await planLeg(last, routeStart, slopeLimit, shortest)
+      : { points: [{ point: last, height: await elevationAt(last) }], distance: 0, optimized: true, coarse: false };
     const outboundPoints = [];
     for (const leg of outboundLegs) {
       outboundPoints.push(...(outboundPoints.length ? leg.points.slice(1) : leg.points));
     }
-    return { outboundLegs, outboundPoints, returnLeg, slopeLimit };
+    return { outboundLegs, outboundPoints, returnLeg, slopeLimit, shortest, roundTrip };
   })();
   routePlanCache = { key, promise };
   promise.catch(() => {
     if (routePlanCache.promise === promise) routePlanCache = { key: "", promise: null };
   });
   return promise;
+}
+
+function planLegs(plan) {
+  return plan.roundTrip ? [...plan.outboundLegs, plan.returnLeg] : plan.outboundLegs;
 }
 
 function drawRoute() {
@@ -987,8 +1076,8 @@ function drawRoute() {
     routeLine.userData.points = points;
     scene.add(routeLine);
     updateRouteVisibility();
-    const optimizedLegs = [...plan.outboundLegs, plan.returnLeg].filter(leg => leg.optimized).length;
-    $("routeMethod").textContent = `A*: ${optimizedLegs} tramo(s) local(es) sobre celdas MOLA de 0,75 km, priorizando menor pendiente y tiempo estimado. Modelo de velocidad empírico terrestre; no validado para Marte.`;
+    const optimizedLegs = planLegs(plan).filter(leg => leg.optimized).length;
+    $("routeMethod").textContent = `A*: ${optimizedLegs} tramo(s) local(es) sobre celdas MOLA de 0,75 km en un corredor de ±5,25 km. Modo: ${plan.shortest ? "más corta (ignora pendientes)" : "más segura (penaliza pendientes sobre el umbral)"}. El modelo de velocidad y energía es una estimación.`;
   }).catch(error => {
     if (generation !== routeDrawGeneration) return;
     console.error(error);
@@ -1160,7 +1249,7 @@ function format(value) {
   return value.toLocaleString("es", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
 }
 
-function drawProfile(profile) {
+function drawProfile(profile, marks = []) {
   const canvas = $("profile"), ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (profile.length < 2) return;
@@ -1181,13 +1270,156 @@ function drawProfile(profile) {
   ctx.font = "12px system-ui";
   ctx.fillText(`${Math.round(high)} m`, 8, 13);
   ctx.fillText(`${Math.round(low)} m`, 8, canvas.height - 3);
+  for (const mark of marks) {
+    const mx = x(mark.distance);
+    ctx.save();
+    ctx.strokeStyle = mark.color;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.moveTo(mx, 14); ctx.lineTo(mx, canvas.height - 14); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = mark.color;
+    ctx.fillText(mark.label, Math.min(mx + 4, canvas.width - 130), 26);
+  }
+}
+
+function readParameters() {
+  const read = id => +$(id).value;
+  const kind = $("explorer").value;
+  const human = kind === "human", crewed = kind === "crewed", walkMode = human || crewed;
+  const vehicle = human
+    ? { speed: read("speed"), massKg: 1, whKm: 0, batteryWh: 1, efficiency: 1 }
+    : { speed: read("speed"), massKg: read("vehicleMass"), whKm: read("vehicleWhKm"), batteryWh: read("vehicleBattery"), efficiency: read("vehicleEfficiency") };
+  const mission = {
+    human, crewed, walkMode,
+    autonomy: read("battery"),
+    reserve: read("reserve"),
+    stopMin: read("stopMin"),
+    slopeLimit: read("threshold"),
+    maxFromBase: human ? read("maxFromBase") : Infinity,
+    o2Capacity: walkMode ? read("o2Capacity") : Infinity,
+    o2Walk: walkMode ? read("o2Walk") : 0,
+    o2Rest: walkMode ? read("o2Rest") : 0,
+    walkSpeed: human ? read("speed") : crewed ? read("walkSpeed") : 0
+  };
+  const positive = [vehicle.speed, mission.autonomy, vehicle.massKg, vehicle.batteryWh, vehicle.efficiency,
+    ...(human ? [mission.maxFromBase, mission.o2Capacity] : [vehicle.whKm]),
+    ...(crewed ? [mission.o2Capacity, mission.walkSpeed] : [])];
+  const nonNegative = [mission.reserve, mission.stopMin, mission.o2Walk, mission.o2Rest];
+  if (positive.some(v => !Number.isFinite(v) || v <= 0) || nonNegative.some(v => !Number.isFinite(v) || v < 0) ||
+      !Number.isFinite(mission.slopeLimit) || mission.slopeLimit < 1 || mission.slopeLimit > 45 ||
+      vehicle.efficiency > 1) {
+    throw new Error("Revisa los parámetros: deben ser números válidos (umbral de pendiente entre 1° y 45°, eficiencia entre 0,05 y 1).");
+  }
+  return { vehicle, mission };
+}
+
+const EXPLORER_PRESETS = {
+  human:  { threshold: 15, speed: 2, battery: 8, reserve: 1, stopMin: 15 },
+  crewed: { threshold: 10, speed: 8, battery: 10, reserve: 1, stopMin: 20,
+            vehicleMass: 3000, vehicleWhKm: 1000, vehicleBattery: 60000, vehicleEfficiency: 0.7, walkSpeed: 2 },
+  rover:  { threshold: 10, speed: 0.1, battery: 40, reserve: 2, stopMin: 60,
+            vehicleMass: 1000, vehicleWhKm: 1500, vehicleBattery: 8000, vehicleEfficiency: 0.6 }
+};
+const ROVER_NOTE = $("paramNote").textContent;
+const HUMAN_NOTE = "Caminata EVA: la salida se limita por duración, distancia máxima desde la base y pendiente, no por batería. Los valores iniciales son de ejemplo, editables, y no son especificaciones de un traje real. El oxígeno se estima con las tasas de consumo que ingreses (caminando y en paradas o reserva); no se modelan temperatura ni fatiga. La velocidad baja con la pendiente (factor 1 − pendiente/35°, mínimo 20 %).";
+const CREWED_NOTE = "Rover presurizado tripulado (concepto; valores de ejemplo, no oficiales). La tripulación va en cabina. El walkback supone que el vehículo falla en cualquier punto y la tripulación vuelve a pie por el camino ya recorrido, con el oxígeno del traje completo. La velocidad baja con la pendiente (factor 1 − pendiente/35°, mínimo 20 %).";
+const ROBOT_NOTE = ROVER_NOTE + " Preset inspirado en rovers de clase Perseverance (valores de ejemplo, no especificaciones oficiales; verifícalos con la documentación de la misión): avanzan del orden de 0,1 km/h, así que la «autonomía» son horas de conducción acumuladas durante varios soles y la batería se trata como presupuesto de energía de la campaña.";
+
+function applyExplorer() {
+  const kind = $("explorer").value;
+  const human = kind === "human", crewed = kind === "crewed";
+  for (const [id, value] of Object.entries(EXPLORER_PRESETS[kind])) $(id).value = value;
+  syncSliders();
+  $("roverFields").hidden = human;
+  $("humanFields").hidden = !(human || crewed);
+  $("maxFromBaseRow").hidden = crewed;
+  $("walkSpeedRow").hidden = !crewed;
+  $("roundTrip").checked = true;
+  $("roundTrip").disabled = human;
+  $("speedLabel").textContent = human ? "Velocidad a pie en terreno plano (km/h)" : "Velocidad del vehículo en terreno plano (km/h)";
+  $("autonomyLabel").textContent = human ? "Duración máxima de la salida EVA (h)" : "Autonomía de operación (h)";
+  $("paramNote").textContent = human ? HUMAN_NOTE : crewed ? CREWED_NOTE : ROBOT_NOTE;
+  drawRoute();
+  updateRouteStats();
+}
+
+function numberOrNull(id) {
+  const raw = $(id).value.trim();
+  if (raw === "") return null;
+  const value = +raw;
+  return Number.isFinite(value) ? value : null;
+}
+
+function readConditions() {
+  return { tMin: numberOrNull("condTmin"), tMax: numberOrNull("condTmax"), pressure: numberOrNull("condPressure"), tLimit: numberOrNull("condTlimit"), source: $("condSource").value.trim() };
+}
+
+function updateConditionsSummary() {
+  const c = readConditions();
+  const parts = [];
+  if (c.tMin !== null || c.tMax !== null) parts.push(`temperatura ${c.tMin ?? "?"} a ${c.tMax ?? "?"} °C`);
+  if (c.pressure !== null) parts.push(`presión ${c.pressure} Pa`);
+  $("condSummary").textContent = parts.length
+    ? `Lectura ingresada manualmente${c.source ? ` (${c.source})` : ""}: ${parts.join(", ")}. No es un dato en tiempo real.`
+    : "Sin condiciones ingresadas.";
+}
+
+const poiMarkers = [];
+function renderPois() {
+  const show = $("showPois").checked;
+  for (const marker of poiMarkers.splice(0)) removeMarker(marker);
+  if (show) SITES.forEach(site => poiMarkers.push(addMarker(site.lat, site.lon, 0xc77dff, 13)));
+}
+
+// Walkback: si algo falla en cualquier punto de la ida, ¿se puede volver a pie a la base
+// por el camino ya recorrido con el oxígeno (y tiempo) que quedaría?
+function calculateWalkback(plan, vehicle, mission) {
+  const samples = [];
+  let driveH = 0, backH = 0, restH = 0, distKm = 0;
+  plan.outboundLegs.forEach((leg, legIndex) => {
+    leg.points.forEach((sample, i) => {
+      if (legIndex > 0 && i === 0) return;
+      if (samples.length) {
+        const prev = samples[samples.length - 1];
+        const horizontalKm = greatCircleKm(prev.point, sample.point);
+        const change = sample.height - prev.height;
+        const grade = change / Math.max(1, horizontalKm * 1000);
+        const step = terrainDistanceKm(horizontalKm, change);
+        const factor = terrainSpeedFactor(grade);
+        driveH += step / (vehicle.speed * factor);       // tiempo a la velocidad del vehículo
+        backH += step / (mission.walkSpeed * factor);    // tiempo de regreso a pie
+        distKm += step;
+      }
+      samples.push({ point: sample.point, height: sample.height, driveH, backH, restH, distKm });
+    });
+    if (routePoints[legIndex]?.scientific) {
+      restH += mission.stopMin / 60;
+      samples[samples.length - 1].restH = restH;
+    }
+  });
+  const reserveO2 = mission.reserve * mission.o2Rest;
+  for (const s of samples) {
+    // Humano: ya gastó oxígeno caminando y en paradas. Rover tripulado: va en cabina, traje lleno.
+    const o2Used = mission.crewed ? 0 : s.driveH * mission.o2Walk + s.restH * mission.o2Rest;
+    s.o2Available = mission.o2Capacity - o2Used;
+    s.o2Needed = s.backH * mission.o2Walk + reserveO2;
+    s.o2Margin = s.o2Available - s.o2Needed;
+    s.timeMargin = mission.crewed ? Infinity
+      : mission.autonomy - (s.driveH + s.restH) - s.backH - mission.reserve;
+    s.viable = s.o2Margin >= 0 && s.timeMargin >= 0;
+  }
+  const badIndex = samples.findIndex(s => !s.viable);
+  const worst = samples.reduce((a, s) => (s.o2Margin < a.o2Margin ? s : a), samples[0]);
+  return {
+    samples, worst,
+    firstBad: badIndex >= 0 ? samples[badIndex] : null,
+    lastOk: badIndex > 0 ? samples[badIndex - 1] : null
+  };
 }
 
 async function updateRouteStats() {
   const generation = ++routeGeneration;
-  $("speedValue").textContent = format(+$("speed").value);
-  $("batteryValue").textContent = format(+$("battery").value);
-  $("thresholdValue").textContent = $("threshold").value;
   if (!routePoints.length) {
     $("routeStats").textContent = "Haz clic en el globo para trazar una ruta.";
     $("verdict").innerHTML = "";
@@ -1196,49 +1428,81 @@ async function updateRouteStats() {
     return;
   }
   if (!manifest) return;
-  $("routeStats").textContent = "Calculando corredor, pendientes y energía con el relieve MOLA…";
+  $("routeStats").textContent = "Calculando corredor, pendientes y tiempos con el relieve MOLA…";
   try {
-    const vehicle = {
-      speed: +$("speed").value,
-      massKg: +$("vehicleMass").value,
-      whKm: +$("vehicleWhKm").value,
-      batteryWh: +$("vehicleBattery").value,
-      efficiency: +$("vehicleEfficiency").value
-    };
-    if (Object.values(vehicle).some(value => !Number.isFinite(value) || value <= 0) ||
-        vehicle.efficiency > 1 || vehicle.massKg > 100000 || vehicle.whKm > 1000000 ||
-        vehicle.batteryWh > 100000000) {
-      throw new Error("Revisa los valores del vehículo: deben estar dentro de los límites indicados.");
-    }
+    const { vehicle, mission } = readParameters();
+    const human = mission.human;
     const plan = await getRoutePlan();
     if (generation !== routeGeneration) return;
-    const outbound = await calculatePathMetrics(plan.outboundPoints, plan.slopeLimit, vehicle);
-    const returning = await calculatePathMetrics(plan.returnLeg.points, plan.slopeLimit, vehicle);
-    if (generation !== routeGeneration) return;
+    const outbound = calculatePathMetrics(plan.outboundPoints, plan.slopeLimit, vehicle);
+    const returning = calculatePathMetrics(plan.returnLeg.points, plan.slopeLimit, vehicle);
+    const full = calculatePathMetrics([...plan.outboundPoints, ...plan.returnLeg.points.slice(1)], plan.slopeLimit, vehicle);
     const scientificStops = routePoints.filter(point => point.scientific).length;
-    const totalTime = outbound.time + returning.time + 1 + scientificStops * 0.25;
+    const stopHours = scientificStops * mission.stopMin / 60;
+    const driveHours = outbound.time + returning.time;
+    const totalTime = driveHours + stopHours + mission.reserve;
     const totalEnergy = outbound.energy + returning.energy;
-    const longLegs = [...plan.outboundLegs, plan.returnLeg].filter(leg => !leg.optimized).length;
+    const totalDistance = outbound.distance + returning.distance;
+    const slopeKm = outbound.hazardous + returning.hazardous;
+    const maxSlope = Math.max(outbound.maxSlope, returning.maxSlope);
     const marginWh = vehicle.batteryWh - totalEnergy;
-    const feasible = totalTime <= +$("battery").value && marginWh >= 0;
-    const departure = +$("departure").value;
-    const endsAtNight = departure < 6 || departure >= 18 || departure + totalTime - 1 > 18;
-    $("routeStats").innerHTML =
-      `<div class="kv"><span>Distancia planificada de ida</span><b>${format(outbound.distance)} km</b></div>` +
-      `<div class="kv"><span>Distancia de regreso</span><b>${format(returning.distance)} km</b></div>` +
-      `<div class="kv"><span>Total sobre terreno</span><b>${format(outbound.distance + returning.distance)} km</b></div>` +
-      `<div class="kv"><span>Tramos de pendiente alta (ida)</span><b>${format(outbound.hazardous)} km</b></div>` +
-      `<div class="kv"><span>Pendiente máxima (ida/regreso)</span><b>${format(Math.max(outbound.maxSlope, returning.maxSlope))}°</b></div>` +
-      `<div class="kv"><span>Paradas científicas</span><b>${scientificStops} (+${scientificStops * 15} min)</b></div>` +
-      `<div class="kv"><span>Tiempo ida y regreso + reserva</span><b>${format(totalTime)} h</b></div>` +
-      `<div class="kv"><span>Energía estimada</span><b>${format(totalEnergy)} / ${format(vehicle.batteryWh)} Wh</b></div>` +
-      `<div class="kv"><span>Margen estimado de batería</span><b>${format(marginWh)} Wh</b></div>`;
-    $("departureValue").textContent = `${Math.floor(departure)}:${departure % 1 ? "30" : "00"}`;
-    const caveat = longLegs
-      ? `<br><small>${longLegs} tramo(s) de más de ${MAX_SLOPE_OPTIMIZED_LEG_KM} km usan transecto geodésico; requieren planificación local.</small>`
+    const flatRangeKm = vehicle.batteryWh / vehicle.whKm;
+    const maxFromBaseKm = Math.max(0, ...[...plan.outboundPoints, ...plan.returnLeg.points].map(sample => greatCircleKm(routeStart, sample.point)));
+    const longLegs = planLegs(plan).filter(leg => !leg.optimized).length;
+
+    const o2Needed = driveHours * mission.o2Walk + (stopHours + mission.reserve) * mission.o2Rest;
+    const o2Margin = mission.o2Capacity - o2Needed;
+    const cond = readConditions();
+    const walk = mission.walkMode ? calculateWalkback(plan, vehicle, mission) : null;
+
+    const problems = [];
+    if (totalTime > mission.autonomy) problems.push(`Tiempo total de ${format(totalTime)} h supera ${human ? "la duración de la salida" : "la autonomía"} de ${format(mission.autonomy)} h.`);
+    if (!human && marginWh < 0) problems.push(`Faltan ${format(-marginWh)} Wh de batería.`);
+    if (human && maxFromBaseKm > mission.maxFromBase) problems.push(`La ruta se aleja ${format(maxFromBaseKm)} km de la base; el máximo configurado es ${format(mission.maxFromBase)} km.`);
+    if (human && o2Margin < 0) problems.push(`Faltan ${format(-o2Margin)} L de oxígeno (necesarios ${format(o2Needed)} L, disponibles ${format(mission.o2Capacity)} L).`);
+    if (walk?.firstBad && !(human && (o2Margin < 0 || totalTime > mission.autonomy))) {
+      const bad = walk.firstBad;
+      const why = bad.o2Margin < 0
+        ? `el regreso a pie necesita ${format(bad.o2Needed)} L de oxígeno y quedarían ${format(bad.o2Available)} L`
+        : "el regreso a pie ya no cabe en la duración de la salida";
+      problems.push(`Walkback no viable desde el km ${format(bad.distKm)} de la ruta (${format(greatCircleKm(routeStart, bad.point))} km de la base): ${why}.`);
+    }
+    if (cond.tMin !== null && cond.tLimit !== null && cond.tMin < cond.tLimit) problems.push(`La temperatura mínima ingresada (${cond.tMin} °C) es menor que el límite admisible (${cond.tLimit} °C).`);
+    if (slopeKm > 0) problems.push(`${format(slopeKm)} km con pendiente regional mayor a ${mission.slopeLimit}° (máxima ${format(maxSlope)}°; escala ≈750 m, el terreno local puede ser más empinado).`);
+    if (longLegs) problems.push(`${longLegs} tramo(s) de más de ${MAX_SLOPE_OPTIMIZED_LEG_KM} km usan transecto recto; requieren planificación local.`);
+    const feasible = problems.length === 0;
+
+    const baseKm = s => format(greatCircleKm(routeStart, s.point));
+    const walkLines = walk
+      ? `<div class="kv"><span>Walkback · margen mínimo de oxígeno</span><b>${format(walk.worst.o2Margin)} L (km ${format(walk.worst.distKm)})</b></div>` +
+        `<div class="kv"><span>Punto de no retorno</span><b>${walk.firstBad
+          ? (walk.lastOk ? `km ${format(walk.lastOk.distKm)} de la ruta · ${baseKm(walk.lastOk)} km de la base` : "ya en la base")
+          : "no se alcanza en esta ruta"}</b></div>`
       : "";
-    $("verdict").innerHTML = `<div class="verdict ${feasible && !longLegs ? "ok" : "bad"}">${feasible && !longLegs ? "✔ Estimación dentro de los límites configurados" : "⚠ No confirmar como ruta operativa"}${longLegs ? caveat : ""}${endsAtNight ? "<br><small>La estimación indica llegada después de las 18:00; verifica luz y ventana de misión.</small>" : ""}<br><small>La energía no incluye consumos auxiliares, reserva de seguridad ni incertidumbre del terreno.</small></div>`;
-    drawProfile(outbound.profile);
+
+    $("routeStats").innerHTML =
+      `<div class="kv"><span>Distancia de ida</span><b>${format(outbound.distance)} km</b></div>` +
+      (plan.roundTrip ? `<div class="kv"><span>Distancia de regreso</span><b>${format(returning.distance)} km</b></div>` : "") +
+      `<div class="kv"><span>Total sobre terreno</span><b>${format(totalDistance)} km</b></div>` +
+      (human ? `<div class="kv"><span>Distancia máxima desde la base / límite</span><b>${format(maxFromBaseKm)} / ${format(mission.maxFromBase)} km</b></div>` : "") +
+      `<div class="kv"><span>Tramos sobre el umbral regional${plan.roundTrip ? " (ida y regreso)" : ""}</span><b>${format(slopeKm)} km</b></div>` +
+      `<div class="kv"><span>Pendiente máxima regional (≈750 m)</span><b>${format(maxSlope)}°</b></div>` +
+      `<div class="kv"><span>Paradas científicas</span><b>${scientificStops} (${format(stopHours * 60)} min)</b></div>` +
+      `<div class="kv"><span>Tiempo de marcha</span><b>${format(driveHours)} h</b></div>` +
+      `<div class="kv"><span>Total con paradas y reserva / ${human ? "duración EVA" : "autonomía"}</span><b>${format(totalTime)} / ${format(mission.autonomy)} h</b></div>` +
+      (human ? `<div class="kv"><span>Oxígeno estimado / disponible</span><b>${format(o2Needed)} / ${format(mission.o2Capacity)} L</b></div>` :
+        `<div class="kv"><span>Energía estimada / batería</span><b>${format(totalEnergy)} / ${format(vehicle.batteryWh)} Wh</b></div>` +
+        `<div class="kv"><span>Margen de batería</span><b>${format(marginWh)} Wh</b></div>` +
+        `<div class="kv"><span>Alcance máximo en plano con esa batería</span><b>${format(flatRangeKm)} km</b></div>`) +
+      walkLines;
+    const footnote = human
+      ? "El oxígeno usa las tasas ingresadas; no incluye temperatura, fatiga ni límites reales del traje."
+      : mission.crewed
+        ? "La energía no incluye consumos auxiliares ni reserva de seguridad. El walkback supone traje completo al fallar el vehículo y regreso a pie por el camino ya recorrido."
+        : "La energía no incluye consumos auxiliares, reserva de seguridad ni incertidumbre del terreno.";
+    $("verdict").innerHTML = `<div class="verdict ${feasible ? "ok" : "bad"}">${feasible ? "✔ Estimación dentro de los límites configurados" : "⚠ No confirmar como ruta operativa"}${problems.map(p => `<br><small>${p}</small>`).join("")}<br><small>${footnote}</small></div>`;
+    drawProfile(full.profile, walk?.firstBad
+      ? [{ distance: walk.lastOk?.distKm ?? 0, color: "#ff9800", label: "Punto de no retorno" }] : []);
   } catch (error) {
     if (generation !== routeGeneration) return;
     console.error(error);
@@ -1327,6 +1591,9 @@ $("site").addEventListener("change", updateSiteInfo);
 $("terrainView").addEventListener("change", event => setTerrainView(event.target.value));
 $("focusSite").addEventListener("click", focusSite);
 $("addSite").addEventListener("click", addSiteToRoute);
+$("showPois").addEventListener("change", renderPois);
+["condSource", "condTmin", "condTmax", "condPressure", "condTlimit"].forEach(id => $(id).addEventListener("input", () => { updateConditionsSummary(); updateRouteStats(); }));
+["o2Capacity", "o2Walk", "o2Rest"].forEach(id => $(id).addEventListener("input", updateRouteStats));
 $("pickStart").addEventListener("click", () => setStartPicking(!pickingStart));
 $("siteAsStart").addEventListener("click", () => {
   const site = selectedSite();
@@ -1343,13 +1610,45 @@ document.querySelectorAll("[data-pan-x], [data-pan-y]").forEach(button => {
     panCamera(+(button.dataset.panX || 0), +(button.dataset.panY || 0));
   });
 });
-["speed", "battery", "departure", "vehicleMass", "vehicleWhKm", "vehicleBattery", "vehicleEfficiency"]
+["speed", "battery", "reserve", "stopMin", "vehicleMass", "vehicleWhKm", "vehicleBattery", "vehicleEfficiency"]
   .forEach(id => $(id).addEventListener("input", updateRouteStats));
-$("threshold").addEventListener("input", () => { drawRoute(); updateRouteStats(); });
+$("explorer").addEventListener("change", applyExplorer);
+$("maxFromBase").addEventListener("input", updateRouteStats);
+$("walkSpeed").addEventListener("input", updateRouteStats);
+["threshold", "routeMode", "roundTrip"]
+  .forEach(id => $(id).addEventListener("input", () => { drawRoute(); updateRouteStats(); }));
 routeStartMarker = addMarker(routeStart.lat, routeStart.lon, 0x54f7d2, 20);
 updateStartStatus();
 updateSiteInfo();
 resize();
+const SLIDERS = {
+  threshold: [1, 45, 1], speed: [0.05, 20, 0.05], battery: [0.5, 48, 0.5],
+  reserve: [0, 6, 0.25], stopMin: [0, 120, 5],
+  vehicleMass: [100, 10000, 50], vehicleWhKm: [50, 5000, 50],
+  vehicleBattery: [1000, 200000, 1000], vehicleEfficiency: [0.05, 1, 0.05],
+  maxFromBase: [0.5, 50, 0.5], o2Capacity: [50, 2000, 10],
+  o2Walk: [0, 150, 1], o2Rest: [0, 100, 1], walkSpeed: [0.5, 6, 0.1]
+};
+function addSliders() {
+  for (const [id, [min, max, step]] of Object.entries(SLIDERS)) {
+    const number = $(id);
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.id = id + "Slider";
+    Object.assign(slider, { min, max, step, value: number.value });
+    number.after(slider);
+    slider.addEventListener("input", () => {
+      number.value = slider.value;
+      number.dispatchEvent(new Event("input"));
+    });
+    number.addEventListener("input", () => { slider.value = number.value; });
+  }
+}
+function syncSliders() {
+  for (const id of Object.keys(SLIDERS)) $(id + "Slider").value = $(id).value;
+}
+addSliders();
+applyExplorer();
 animate();
 
 fetch("MOLA-tiles/manifest.json").then(response => {
